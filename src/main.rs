@@ -20,6 +20,21 @@ fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
             let num = &encoded_value[1..end_index].parse::<i64>().unwrap();
             return json!(num);
         }
+        Some(c) if c == 'l' => {
+            let mut list = Vec::new();
+            let mut remaining = &encoded_value[1..];
+            while !remaining.is_empty() {
+                if remaining.starts_with('e') {
+                    remaining = &remaining[1..];
+                    break;
+                }
+                let value = decode_bencoded_value(remaining).to_string();
+                let rem = value.to_string().len();
+                list.push(value);
+                remaining = &remaining[rem..];
+            }
+            return json!(list);
+        }
         _ => serde_json::Value::Null,
     }
 }
