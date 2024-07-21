@@ -24,7 +24,7 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, usize) {
         Some(c) if c == 'l' => {
             let mut list = Vec::new();
             let mut remaining = &encoded_value[1..];
-            let mut len = 0;
+            let mut len = 1;
             while !remaining.is_empty() {
                 // println!("{remaining:?}");
                 if remaining.starts_with('e') {
@@ -35,7 +35,29 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, usize) {
                 list.push(value);
                 remaining = &remaining[val_len..];
             }
-            return (json!(list), len + 2);
+            return (json!(list), len + 1);
+        }
+        Some(c) if c == 'd' => {
+            let mut dict: serde_json::Map<std::string::String, serde_json::Value> =
+                serde_json::Map::new();
+            let mut remaining = &encoded_value[1..];
+            let mut len = 1;
+            while !remaining.is_empty() {
+                if remaining.starts_with('e') {
+                    break;
+                }
+                let (key, key_len) = decode_bencoded_value(&remaining);
+                len += key_len;
+                remaining = &remaining[key_len..];
+
+                let (val, val_len) = decode_bencoded_value(&remaining);
+                len += val_len;
+                dict.insert(key.as_str().unwrap().to_owned(), val);
+
+                remaining = &remaining[val_len..];
+                // println!("{dict:?} {remaining:?}");
+            }
+            return (json!(dict), len + 1);
         }
         _ => (serde_json::Value::Null, 0),
     }
