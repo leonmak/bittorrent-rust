@@ -12,8 +12,8 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, usize) {
             let num_str = str::from_utf8(&encoded_value[..colon_index]);
             let number = i64::from_str_radix(num_str.unwrap(), 10).unwrap();
             let end_idx = colon_index + 1 + number as usize;
-            let string: &str = &String::from_utf8_lossy(&encoded_value[colon_index + 1..end_idx]);
-            return (serde_json::Value::String(string.to_string()), end_idx);
+            let string = String::from_utf8_lossy(&encoded_value[colon_index + 1..end_idx]);
+            return (json!(string.to_string()), end_idx);
         }
         Some(i) if *i == b'i' => {
             let end_index = encoded_value.iter().position(|&x| x == b'e').unwrap();
@@ -71,13 +71,17 @@ fn read_torrent_info(filename: &str) -> Option<(String, String)> {
             // println!("{:?}", decoded_value);
             let url = decoded_value.get("announce")?.to_string();
             let length = decoded_value.get("info")?.get("length")?.to_string();
-            Some((url, length))
+            Some((remove_json_quote(url), length))
         }
         Err(e) => {
             println!("Read failed: {:?}", e);
             return None;
         }
     }
+}
+
+fn remove_json_quote(s: String) -> String {
+    s[1..s.len() - 1].to_owned()
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
