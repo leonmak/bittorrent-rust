@@ -1,4 +1,6 @@
 use core::str;
+use reqwest::blocking::get;
+use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use sha1::{Digest, Sha1};
 use std::{env, fs, path::Path};
@@ -6,7 +8,7 @@ use std::{env, fs, path::Path};
 #[allow(dead_code)]
 fn decode_bencoded_value(
     encoded_value: &[u8],
-    info_hash_meta: &mut HelperInfo,
+    helper: &mut HelperInfo,
 ) -> (serde_json::Value, usize) {
     match encoded_value.iter().next() {
         Some(str_len) if str_len.is_ascii_digit() => {
@@ -20,7 +22,7 @@ fn decode_bencoded_value(
 
             // it will be invalid utf8 if it was a key 'pieces', return array in that case
             // you can use unsafe string, but it will not be checked and string will panic
-            if info_hash_meta.was_pieces_key {
+            if helper.is_bytes_val {
                 return (json!(target_slice), end_idx);
             }
             // strings are valid utf8-encoded byte slice
@@ -42,7 +44,7 @@ fn decode_bencoded_value(
                 if *remaining.iter().next().unwrap() == b'e' {
                     break;
                 }
-                let (value, val_len) = decode_bencoded_value(remaining, info_hash_meta);
+                let (value, val_len) = decode_bencoded_value(remaining, helper);
                 len += val_len;
                 list.push(value);
                 remaining = &remaining[val_len..];
@@ -58,34 +60,33 @@ fn decode_bencoded_value(
                 if *remaining.iter().next().unwrap() == b'e' {
                     break;
                 }
-                let (key, key_len) = decode_bencoded_value(&remaining, info_hash_meta);
+                let (key, key_len) = decode_bencoded_value(&remaining, helper);
                 len += key_len;
                 remaining = &remaining[key_len..];
-
+                // print!("key:{}", key);
                 let key_val = key.as_str().unwrap();
-                if key_val == "pieces" {
-                    info_hash_meta.was_pieces_key = true;
-                }
+                helper.is_bytes_val = key_val == "pieces" || key_val == "peers";
                 if key_val == "info" {
                     // println!("Found info at {}", info_hash_meta.start);
-                    info_hash_meta.found_info_start = true;
-                    info_hash_meta.info_start += 6; // avoid 4:info
+                    helper.found_info_start = true;
+                    helper.info_start += 6; // avoid 4:info
                 }
                 // println!("key_len {}", key_len);
 
-                let (val, val_len) = decode_bencoded_value(&remaining, info_hash_meta);
+                let (val, val_len) = decode_bencoded_value(&remaining, helper);
+                // println!(" val:{}", val);
                 len += val_len;
                 dict.insert(key.as_str().unwrap().to_owned(), val);
-                if info_hash_meta.found_info_start {
-                    info_hash_meta.info_end = info_hash_meta.info_start + val_len;
+                if helper.found_info_start {
+                    helper.info_end = helper.info_start + val_len;
                 }
 
                 remaining = &remaining[val_len..];
                 // println!("{dict:?} {remaining:?}");
 
                 // accumulate start index if have not found the start of info_dict
-                if !info_hash_meta.found_info_start {
-                    info_hash_meta.info_start += val_len + key_len; // add key + value + colon
+                if !helper.found_info_start {
+                    helper.info_start += val_len + key_len; // add key + value + colon
                 }
             }
             return (json!(dict), len + 1);
@@ -106,13 +107,15 @@ struct MetaInfo {
     announce: String,
     length: String,
     info_hash: String,
+    piece_len: String,
+    piece_hashes: Vec<Value>,
 }
 
 struct HelperInfo {
     info_start: usize,
     info_end: usize,
     found_info_start: bool,
-    was_pieces_key: bool,
+    is_bytes_val: bool,
 }
 
 impl HelperInfo {
@@ -121,7 +124,7 @@ impl HelperInfo {
             info_start: 1, // exclude first d
             info_end: 0,
             found_info_start: false,
-            was_pieces_key: false,
+            is_bytes_val: false,
         }
     }
 }
@@ -131,36 +134,27 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
     let path = Path::new(filename);
     match fs::read(path) {
         Ok(encoded_value) => {
-            let mut info_hash_meta = HelperInfo::new();
+            let mut helper = HelperInfo::new();
             let (decoded_value, _len) =
-                decode_bencoded_value(encoded_value.as_slice(), &mut info_hash_meta);
+                decode_bencoded_value(encoded_value.as_slice(), &mut helper);
 
             // println!("{:?}", decoded_value);
             let url = decoded_value.get("announce")?.to_string();
-            let info_dict = decoded_value.get("info")?;
+            let info_dict = decoded_value.get("info")?.clone();
             let length = info_dict.get("length")?.to_string();
 
-            let info_dict_slice =
-                &encoded_value[info_hash_meta.info_start..info_hash_meta.info_end];
+            let info_dict_slice = &encoded_value[helper.info_start..helper.info_end];
             // println!("debug {}", String::from_utf8_lossy(info_dict));
+            let piece_len = info_dict.get("piece length")?.to_string();
+            let piece_hashes = info_dict.get("pieces")?.as_array()?.clone();
             let meta_info = MetaInfo {
                 announce: remove_json_quote(url),
                 length,
                 info_hash: get_info_hash(info_dict_slice),
+                piece_len,
+                piece_hashes,
             };
 
-            let url = &meta_info.announce;
-            let len = &meta_info.length;
-            let info_hash = &meta_info.info_hash;
-            let piece_len = info_dict.get("piece length")?.to_string();
-            println!("Tracker URL: {url}");
-            println!("Length: {len}");
-            println!("Info Hash: {info_hash}");
-            println!("Piece Length: {}", piece_len);
-            println!("Piece Hashes:");
-            if let Some(pieces_arr) = info_dict.get("pieces")?.as_array() {
-                print_piece_hashes(pieces_arr);
-            }
             Some(meta_info)
         }
         Err(e) => {
@@ -172,7 +166,7 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
 
 use std::fmt::Write;
 
-fn print_piece_hashes(pieces: &Vec<Value>) {
+fn print_piece_hashes(pieces: Vec<Value>) {
     if pieces.len() % 20 != 0 {
         println!(
             "Invalid pieces field: length is not a multiple of 20 {}",
@@ -212,6 +206,60 @@ fn remove_json_quote(s: String) -> String {
     s[1..s.len() - 1].to_owned()
 }
 
+fn hex_to_enc(hex_str: &str) -> String {
+    let mut url = String::new();
+    for chunk in hex_str.as_bytes().chunks(2) {
+        url.push_str("%");
+        let from_utf8 = String::from_utf8(chunk.to_vec()).unwrap();
+        url.push_str(&from_utf8);
+    }
+    url
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct PeerInfo {
+    interval: u64,
+    peers: Vec<u8>,
+}
+
+fn get_tracker_url(meta: MetaInfo) -> Option<String> {
+    let info_hash = meta.info_hash;
+    let url = format!(
+        "{}?info_hash={}&peer_id=00112233445566778899&port=6881&uploaded=0&downloaded=0&compact=1&left={}",
+        meta.announce, hex_to_enc(info_hash.as_str()), meta.length
+    );
+    Some(url)
+}
+
+fn read_peer_url(meta_info: MetaInfo) -> Result<PeerInfo, reqwest::Error> {
+    let url = get_tracker_url(meta_info).unwrap();
+    println!("Fetching Tracker: {}", url);
+    let response = get(url).unwrap();
+    let bytes = response.bytes()?;
+    let bytes = bytes.as_ref();
+    let mut helper_info = HelperInfo::new();
+    let (peer_info_dict, _size) = decode_bencoded_value(&bytes.to_vec(), &mut helper_info);
+    println!("debug {}", peer_info_dict);
+    let peer_info: PeerInfo = serde_json::from_value(peer_info_dict).unwrap();
+    Ok(peer_info)
+}
+
+fn fmt_ip_str(ip_str: Vec<u8>) -> Vec<String> {
+    // first 4 bytes are ip address, last 2 bytes are port
+    let mut res: Vec<String> = Vec::new();
+    for bytes in ip_str.chunks(6) {
+        let ip_bytes = &bytes[..4];
+        let port_bytes = &bytes[4..];
+        let ip = format!(
+            "{}.{}.{}.{}",
+            ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]
+        );
+        let port = u16::from_be_bytes([port_bytes[0], port_bytes[1]]);
+        res.push(format!("{}:{}", ip, port));
+    }
+    res
+}
+
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -225,7 +273,24 @@ fn main() {
         }
         "info" => {
             let filename = &args[2];
-            let _meta_info = read_torrent_info(filename);
+            let meta_info = read_torrent_info(filename).unwrap();
+            let url = meta_info.announce;
+            let len = meta_info.length;
+            let info_hash = meta_info.info_hash;
+            println!("Tracker URL: {url}");
+            println!("Length: {len}");
+            println!("Info Hash: {info_hash}");
+            println!("Piece Length: {}", meta_info.piece_len);
+            println!("Piece Hashes:");
+            print_piece_hashes(meta_info.piece_hashes);
+        }
+        "peers" => {
+            let filename = &args[2];
+            let meta_info = read_torrent_info(filename).unwrap();
+            let peer_info = read_peer_url(meta_info).unwrap();
+            for peer in fmt_ip_str(peer_info.peers) {
+                println!("{}", peer);
+            }
         }
         _ => {
             println!("unknown command: {}", args[1])
