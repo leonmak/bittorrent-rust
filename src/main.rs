@@ -3,6 +3,8 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use sha1::{Digest, Sha1};
+use std::io::{Cursor, Write as _};
+use std::net::TcpStream;
 use std::{env, fs, path::Path};
 
 #[allow(dead_code)]
@@ -260,6 +262,63 @@ fn fmt_ip_str(ip_str: Vec<u8>) -> Vec<String> {
     res
 }
 
+#[derive(Debug)]
+struct HandshakeMessage {
+    pstr_len: u8,
+    pstr: [u8; 19],
+    reserved: [u8; 8],
+    info_hash: [u8; 20],
+    peer_id: [u8; 20],
+}
+
+use std::io::Read as _;
+fn read_handshake_message<R: std::io::Read>(reader: &mut R) -> std::io::Result<HandshakeMessage> {
+    let mut handshake = HandshakeMessage {
+        pstr_len: 0,
+        pstr: [0; 19],
+        reserved: [0; 8],
+        info_hash: [0; 20],
+        peer_id: [0; 20],
+    };
+    reader.read_exact(std::slice::from_mut(&mut handshake.pstr_len))?;
+    reader.read_exact(&mut handshake.pstr)?;
+    reader.read_exact(&mut handshake.reserved)?;
+    reader.read_exact(&mut handshake.info_hash)?;
+    reader.read_exact(&mut handshake.peer_id)?;
+
+    Ok(handshake)
+}
+
+fn send_handshake(address: &str, info_hash: &str) -> String {
+    // send a message with TCP
+    let mut stream = TcpStream::connect(address).expect("Failed to connect to peer");
+    let info_hash = "0123456789012345678901234567890123456789"; // Replace with the info hash (20 bytes)
+    let peer_id = "00112233445566778899"; // Peer ID (20 bytes)
+
+    let mut handshake_msg = Vec::new();
+    handshake_msg.push(19); // Length of the protocol string (1 byte)
+    handshake_msg.extend_from_slice(b"BitTorrent protocol"); // Protocol string (19 bytes)
+    handshake_msg.extend_from_slice(&[0u8; 8]); // Reserved bytes (8 bytes)
+    handshake_msg.extend_from_slice(info_hash.as_bytes()); // Info hash (20 bytes)
+    handshake_msg.extend_from_slice(peer_id.as_bytes()); // Peer ID (20 bytes)
+
+    // Send the handshake message
+    stream
+        .write_all(&handshake_msg)
+        .expect("Failed to send handshake");
+
+    // Read the response from the peer
+    let mut response = [0u8; 68];
+    stream
+        .read_exact(&mut response)
+        .expect("Failed to read response");
+
+    let mut cursor = Cursor::new(response);
+    let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
+    println!("{:?}", handshake);
+    String::from_utf8(handshake.peer_id.to_vec()).expect("coult not parse peer id")
+}
+
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -291,6 +350,13 @@ fn main() {
             for peer in fmt_ip_str(peer_info.peers) {
                 println!("{}", peer);
             }
+        }
+        "handshake" => {
+            let filename = &args[2];
+            let meta_info = read_torrent_info(filename).unwrap();
+            let ip_port = &args[3];
+            let peerId = send_handshake(ip_port, &meta_info.info_hash);
+            println!("Peer ID: {}", peerId);
         }
         _ => {
             println!("unknown command: {}", args[1])
