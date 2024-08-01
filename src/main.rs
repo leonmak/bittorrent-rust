@@ -292,7 +292,6 @@ fn read_handshake_message<R: std::io::Read>(reader: &mut R) -> std::io::Result<H
 fn send_handshake(address: &str, info_hash: &str) -> String {
     // send a message with TCP
     let mut stream = TcpStream::connect(address).expect("Failed to connect to peer");
-    let info_hash = "0123456789012345678901234567890123456789"; // Replace with the info hash (20 bytes)
     let peer_id = "00112233445566778899"; // Peer ID (20 bytes)
 
     let mut handshake_msg = Vec::new();
@@ -355,8 +354,8 @@ fn main() {
             let filename = &args[2];
             let meta_info = read_torrent_info(filename).unwrap();
             let ip_port = &args[3];
-            let peerId = send_handshake(ip_port, &meta_info.info_hash);
-            println!("Peer ID: {}", peerId);
+            let peer_id = send_handshake(ip_port, &meta_info.info_hash);
+            println!("Peer ID: {}", peer_id);
         }
         _ => {
             println!("unknown command: {}", args[1])
