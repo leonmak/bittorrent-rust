@@ -300,7 +300,7 @@ fn send_handshake(address: &str, info_hash: &str) -> String {
     handshake_msg.extend_from_slice(&[0u8; 8]); // Reserved bytes (8 bytes)
     handshake_msg.extend_from_slice(info_hash.as_bytes()); // Info hash (20 bytes)
     handshake_msg.extend_from_slice(peer_id.as_bytes()); // Peer ID (20 bytes)
-
+    println!("Sending {} bytes", handshake_msg.len());
     // Send the handshake message
     stream
         .write_all(&handshake_msg)
@@ -314,8 +314,11 @@ fn send_handshake(address: &str, info_hash: &str) -> String {
 
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
-    println!("{:?}", handshake);
-    String::from_utf8(handshake.peer_id.to_vec()).expect("coult not parse peer id")
+    // print each byte as its hex char
+    format!(
+        "{}",
+        handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
+    )
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
