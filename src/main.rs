@@ -208,6 +208,16 @@ fn remove_json_quote(s: String) -> String {
     s[1..s.len() - 1].to_owned()
 }
 
+fn hex_str_as_bytes(hex_str: &str) -> Vec<u8> {
+    // convert every 2 chars into a hex u8
+    let mut res: Vec<u8> = Vec::new();
+    for i in 0..hex_str.len() / 2 {
+        let byte = u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16).unwrap();
+        res.push(byte);
+    }
+    res
+}
+
 fn hex_to_enc(hex_str: &str) -> String {
     let mut url = String::new();
     for chunk in hex_str.as_bytes().chunks(2) {
@@ -298,7 +308,7 @@ fn send_handshake(address: &str, info_hash: &str) -> String {
     handshake_msg.push(19); // Length of the protocol string (1 byte)
     handshake_msg.extend_from_slice(b"BitTorrent protocol"); // Protocol string (19 bytes)
     handshake_msg.extend_from_slice(&[0u8; 8]); // Reserved bytes (8 bytes)
-    handshake_msg.extend_from_slice(info_hash.as_bytes()); // Info hash (20 bytes)
+    handshake_msg.extend_from_slice(hex_str_as_bytes(info_hash).as_slice()); // Info hash (20 bytes)
     handshake_msg.extend_from_slice(peer_id.as_bytes()); // Peer ID (20 bytes)
     println!("Sending {} bytes", handshake_msg.len());
     // Send the handshake message
@@ -315,7 +325,7 @@ fn send_handshake(address: &str, info_hash: &str) -> String {
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
     // print each byte as its hex char
-    println!("{:?}", handshake);
+    // println!("{:?}", handshake);
     format!(
         "{}",
         handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
