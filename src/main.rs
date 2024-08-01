@@ -315,6 +315,7 @@ fn send_handshake(address: &str, info_hash: &str) -> String {
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
     // print each byte as its hex char
+    println!("{:?}", handshake);
     format!(
         "{}",
         handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
