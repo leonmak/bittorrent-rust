@@ -358,7 +358,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     stream.write(resp.as_slice()).expect("resp failed");
 
     // rcv unchoke
-    stream.read_exact(&mut len_prefix).expect("len failed");
+    stream.read_to_end(&mut len_prefix).expect("len failed");
     stream.read_exact(&mut msg_id).expect("id failed");
     message_length = u32::from_be_bytes(len_prefix) as usize;
     // 1: unchoke
