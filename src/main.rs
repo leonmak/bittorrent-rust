@@ -351,7 +351,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
 
     // Read the bitfield payload - 1 means have piece
     let mut bitfield = vec![0u8; message_length];
-    stream.read_exact(&mut bitfield).expect("read bitfield");
+    stream.read_to_end(&mut bitfield).expect("read bitfield");
 
     // resp len=0, id=interested
     let resp = vec![0, 2];
