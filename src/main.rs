@@ -359,6 +359,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     msg_id[0] = 2;
     stream.write_all(&len_prefix).expect("resp len failed");
     stream.write_all(&msg_id).expect("interested failed");
+    stream.write_all(&msg_id).expect("interested failed");
     println!("send interested");
 
     // rcv unchoke
