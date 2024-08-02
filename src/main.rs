@@ -389,6 +389,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
             req_message.extend(payload_len_32.to_be_bytes()); // prefix len
             req_message.extend(vec![6].as_slice()); // 6=request
             req_message.extend(payload.as_slice()); // payload: selector=id,offset,len
+            println!("sending request: {:?}", req_message);
             stream.write(req_message.as_slice()).expect("req failed");
 
             stream.read_exact(&mut len_prefix).expect("len failed");
