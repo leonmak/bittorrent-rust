@@ -329,7 +329,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
     // print each byte as its hex char
-    // println!("{:?}", handshake);
+    println!("{:?}", handshake);
     format!(
         "{}",
         handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
@@ -359,15 +359,12 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     msg_id[0] = 2;
     stream.write_all(&len_prefix).expect("resp len failed");
     stream.write_all(&msg_id).expect("interested failed");
-    stream.write_all(&msg_id).expect("interested failed");
     println!("send interested");
 
     // rcv unchoke
     stream.read_exact(&mut len_prefix).expect("len failed");
     stream.read_exact(&mut msg_id).expect("id failed");
     message_length = u32::from_be_bytes(len_prefix) as usize;
-
-    // 1: unchoke
     println!("unchoke len: {}, id: {}", message_length, msg_id[0]);
 
     // send 6:request to each downloader
