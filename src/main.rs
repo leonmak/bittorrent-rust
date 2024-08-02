@@ -105,12 +105,14 @@ info: A dictionary with keys:
     piece length: number of bytes in each piece
     pieces: concatenated SHA-1 hashes of each piece
  */
+
+#[derive(Debug)]
 struct MetaInfo {
     announce: String,
     length: String,
     info_hash: String,
     piece_len: String,
-    piece_hashes: Vec<Value>,
+    piece_hashes: Vec<String>,
 }
 
 struct HelperInfo {
@@ -154,7 +156,7 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
                 length,
                 info_hash: get_sha1(info_dict_slice),
                 piece_len,
-                piece_hashes,
+                piece_hashes: pieces_sha1(piece_hashes),
             };
 
             Some(meta_info)
@@ -168,7 +170,7 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
 
 use std::fmt::Write;
 
-fn piece_hashes(pieces: Vec<Value>) -> Vec<String> {
+fn pieces_sha1(pieces: Vec<Value>) -> Vec<String> {
     if pieces.len() % 20 != 0 {
         println!(
             "Invalid pieces field: length is not a multiple of 20 {}",
@@ -189,7 +191,6 @@ fn piece_hashes(pieces: Vec<Value>) -> Vec<String> {
         for byte in hash {
             write!(&mut hash_str, "{:02x}", byte).unwrap();
         }
-        println!("{}", hash_str);
         res.push(hash_str)
     }
     res
@@ -238,8 +239,8 @@ struct PeerInfo {
     peers: Vec<u8>,
 }
 
-fn get_tracker_url(meta: MetaInfo) -> Option<String> {
-    let info_hash = meta.info_hash;
+fn get_tracker_url(meta: &MetaInfo) -> Option<String> {
+    let info_hash = meta.info_hash.clone();
     let url = format!(
         "{}?info_hash={}&peer_id=00112233445566778899&port=6881&uploaded=0&downloaded=0&compact=1&left={}",
         meta.announce, hex_to_enc(info_hash.as_str()), meta.length
@@ -247,7 +248,7 @@ fn get_tracker_url(meta: MetaInfo) -> Option<String> {
     Some(url)
 }
 
-fn read_peer_url(meta_info: MetaInfo) -> Result<PeerInfo, reqwest::Error> {
+fn read_peer_url(meta_info: &MetaInfo) -> Result<PeerInfo, reqwest::Error> {
     let url = get_tracker_url(meta_info).unwrap();
     println!("Fetching Tracker: {}", url);
     let response = get(url).unwrap();
@@ -305,7 +306,7 @@ fn read_handshake_message<R: std::io::Read>(reader: &mut R) -> std::io::Result<H
 
 fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
     // send a message with TCP
-    let peer_id = "00112233445566778899"; // Peer ID (20 bytes)
+    let peer_id = "00112233445566778899"; // My Peer ID (20 bytes)
 
     let mut handshake_msg = Vec::new();
     handshake_msg.push(19); // Length of the protocol string (1 byte)
@@ -336,7 +337,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
 }
 
 const CHUNK_SIZE: usize = 1 << 14;
-fn download_piece(mut stream: &TcpStream, hashes: Vec<String>) {
+fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
 
     // recv bitfield
@@ -423,12 +424,14 @@ fn main() {
             println!("Info Hash: {info_hash}");
             println!("Piece Length: {}", meta_info.piece_len);
             println!("Piece Hashes:");
-            let _hashes = piece_hashes(meta_info.piece_hashes);
+            for hash in meta_info.piece_hashes {
+                println!("{hash}");
+            }
         }
         "peers" => {
             let filename = &args[2];
             let meta_info = read_torrent_info(filename).unwrap();
-            let peer_info = read_peer_url(meta_info).unwrap();
+            let peer_info = read_peer_url(&meta_info).unwrap();
             for peer in fmt_ip_str(peer_info.peers) {
                 println!("{}", peer);
             }
@@ -446,15 +449,17 @@ fn main() {
             let output_fn = &args[3];
             let filename = &args[4];
             let idx = &args[5];
-            let meta_info = read_torrent_info(filename).unwrap();
-            let stream = TcpStream::connect(meta_info.announce).expect("Failed to connect to peer");
-            let peer_id = send_handshake(&stream, &meta_info.info_hash);
-            println!("Peer ID: {}", peer_id);
-            let hashes = piece_hashes(meta_info.piece_hashes);
-
-            download_piece(&stream, hashes);
-            // Wait for a bitfield message from the peer indicating which pieces it has
-            println!("Piece {} downloaded to {}", idx, output_fn);
+            let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
+            let peer_info = read_peer_url(&meta_info).unwrap();
+            println!("{:?}", meta_info);
+            for peer_ipaddr in fmt_ip_str(peer_info.peers) {
+                println!("Connecting to: {:?}", peer_ipaddr);
+                let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
+                let peer_id = send_handshake(&stream, &meta_info.info_hash);
+                println!("Handshake Peer ID: {}", peer_id);
+                download_piece(&stream, &meta_info.piece_hashes);
+                println!("Piece {} downloaded to {}", idx, output_fn);
+            }
         }
         _ => {
             println!("unknown command: {}", args[1])
