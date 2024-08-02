@@ -3,6 +3,7 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use sha1::{Digest, Sha1};
+use std::fs::OpenOptions;
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::{env, fs, path::Path};
@@ -337,7 +338,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
 }
 
 const CHUNK_SIZE: usize = 1 << 14;
-fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
+fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str) {
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
 
     // recv bitfield
@@ -368,42 +369,47 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     println!("unchoke len: {}, id: {}", message_length, msg_id[0]);
 
     // send 6:request to each downloader
-    bitfield
-        .chunks(16 * 1024)
-        .enumerate()
-        .for_each(|(idx, chunk)| {
-            // Break the piece into blocks of 16 kiB (16 * 1024 bytes)
-            let begin = idx * CHUNK_SIZE;
-            let length = if idx < bitfield.len() - 1 {
-                CHUNK_SIZE
-            } else {
-                chunk.len()
-            };
-            let mut payload: Vec<u8> = Vec::new();
-            let idx_32: u32 = idx.try_into().unwrap();
-            let begin_32: u32 = begin.try_into().unwrap();
-            let len_32: u32 = length.try_into().unwrap();
-            payload.extend_from_slice(&idx_32.to_be_bytes());
-            payload.extend_from_slice(&begin_32.to_be_bytes());
-            payload.extend_from_slice(&len_32.to_be_bytes());
+    hashes.iter().enumerate().for_each(|(idx, chunk)| {
+        // Break the piece into blocks of 16 kiB (16 * 1024 bytes)
+        let begin = idx * CHUNK_SIZE;
+        let length = if idx < bitfield.len() - 1 {
+            CHUNK_SIZE
+        } else {
+            chunk.len()
+        };
+        let mut payload: Vec<u8> = Vec::new();
+        let idx_32: u32 = idx.try_into().unwrap();
+        let begin_32: u32 = begin.try_into().unwrap();
+        let len_32: u32 = length.try_into().unwrap();
+        payload.extend_from_slice(&idx_32.to_be_bytes());
+        payload.extend_from_slice(&begin_32.to_be_bytes());
+        payload.extend_from_slice(&len_32.to_be_bytes());
 
-            let payload_len_32: u32 = payload.len().try_into().unwrap();
-            let mut req_message: Vec<u8> = Vec::with_capacity(13);
-            req_message.extend(payload_len_32.to_be_bytes()); // prefix len
-            req_message.extend(vec![6].as_slice()); // 6=request
-            req_message.extend(payload.as_slice()); // payload: selector=id,offset,len
-            println!("sending request: {:?}", req_message);
-            stream.write(req_message.as_slice()).expect("req failed");
+        let payload_len_32: u32 = payload.len().try_into().unwrap();
+        let mut req_message: Vec<u8> = Vec::with_capacity(13);
+        req_message.extend(payload_len_32.to_be_bytes()); // prefix len
+        req_message.extend(vec![6].as_slice()); // 6=request
+        req_message.extend(payload.as_slice()); // payload: selector=id,offset,len
+        println!("sending request: {:?}", req_message);
+        stream.write(req_message.as_slice()).expect("req failed");
 
-            stream.read_exact(&mut len_prefix).expect("len failed");
-            stream.read_exact(&mut msg_id).expect("id failed");
-            let mut block: Vec<u8> = Vec::new();
-            stream.read_to_end(&mut block).expect("block read failed");
-            let block_hash = get_sha1(block.as_slice());
-            let expected_hash = hashes[idx].clone();
-            let same = block_hash == expected_hash;
-            println!("{:?} == {:?} {}", block_hash, expected_hash, same);
-        })
+        stream.read_exact(&mut len_prefix).expect("len failed");
+        stream.read_exact(&mut msg_id).expect("id failed");
+        let mut block: Vec<u8> = Vec::new();
+        stream.read_to_end(&mut block).expect("block read failed");
+        let block_hash = get_sha1(block.as_slice());
+        let expected_hash = hashes[idx].clone();
+        let same = block_hash == expected_hash;
+        println!("{:?} == {:?} {}", block_hash, expected_hash, same);
+        // save block to output fn
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .append(true)
+            .open(output_fn)
+            .unwrap();
+        file.write_all(block.as_slice()).unwrap();
+    })
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -461,7 +467,7 @@ fn main() {
                 let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 println!("Handshake Peer ID: {}", peer_id);
-                download_piece(&stream, &meta_info.piece_hashes);
+                download_piece(&stream, &meta_info.piece_hashes, output_fn);
                 println!("Piece {} downloaded to {}", idx, output_fn);
             }
         }
