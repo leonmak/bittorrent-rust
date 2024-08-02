@@ -65,7 +65,7 @@ fn decode_bencoded_value(
                 let (key, key_len) = decode_bencoded_value(&remaining, helper);
                 len += key_len;
                 remaining = &remaining[key_len..];
-                // print!("key:{}", key);
+                print!("key:{}", key);
                 let key_val = key.as_str().unwrap();
                 helper.is_bytes_val = key_val == "pieces" || key_val == "peers";
                 if key_val == "info" {
