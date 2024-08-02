@@ -350,19 +350,20 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     println!("bitfield len: {}, id: {}", message_length, msg_id[0]);
 
     // Read the bitfield payload - 1 means have piece
-    let mut bitfield = vec![0u8; message_length];
-    stream.read_to_end(&mut bitfield).expect("read bitfield");
+    let mut bitfield = Vec::new();
+    stream.read_exact(&mut bitfield).expect("read bitfield");
+    println!("bitfield payload: {:?}", bitfield);
 
     // resp len=0, id=interested
     let resp = vec![0, 2];
     stream.write(resp.as_slice()).expect("resp failed");
 
     // rcv unchoke
-    stream.read_to_end(&mut len_prefix).expect("len failed");
+    stream.read_exact(&mut len_prefix).expect("len failed");
     stream.read_exact(&mut msg_id).expect("id failed");
     message_length = u32::from_be_bytes(len_prefix) as usize;
     // 1: unchoke
-    println!("bitfield len: {}, id: {}", message_length, msg_id[0]);
+    println!("unchoke len: {}, id: {}", message_length, msg_id[0]);
 
     // send 6:request to each downloader
     bitfield
