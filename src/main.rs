@@ -262,7 +262,7 @@ fn read_peer_url(meta_info: &MetaInfo) -> Result<PeerInfo, reqwest::Error> {
     Ok(peer_info)
 }
 
-fn fmt_ip_str(ip_str: Vec<u8>) -> Vec<String> {
+fn fmt_ip_str(ip_str: &Vec<u8>) -> Vec<String> {
     // first 4 bytes are ip address, last 2 bytes are port
     let mut res: Vec<String> = Vec::new();
     for bytes in ip_str.chunks(6) {
@@ -443,7 +443,7 @@ fn main() {
             let filename = &args[2];
             let meta_info = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
-            for peer in fmt_ip_str(peer_info.peers) {
+            for peer in fmt_ip_str(&peer_info.peers) {
                 println!("{}", peer);
             }
         }
@@ -463,14 +463,14 @@ fn main() {
             let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
-            for peer_ipaddr in fmt_ip_str(peer_info.peers) {
-                println!("Connecting to: {:?}", peer_ipaddr);
-                let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
-                let peer_id = send_handshake(&stream, &meta_info.info_hash);
-                println!("Handshake Peer ID: {}", peer_id);
-                download_piece(&stream, &meta_info.piece_hashes, output_fn);
-                println!("Piece {} downloaded to {}", idx, output_fn);
-            }
+            let peer_ips = fmt_ip_str(&peer_info.peers);
+            let peer_ipaddr = peer_ips.get(0).unwrap();
+            println!("Connecting to: {:?}", peer_ipaddr);
+            let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
+            let peer_id = send_handshake(&stream, &meta_info.info_hash);
+            println!("Handshake Peer ID: {}", peer_id);
+            download_piece(&stream, &meta_info.piece_hashes, output_fn);
+            println!("Piece {} downloaded to {}", idx, output_fn);
         }
         _ => {
             println!("unknown command: {}", args[1])
