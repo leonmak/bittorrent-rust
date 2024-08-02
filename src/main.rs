@@ -355,7 +355,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>) {
     println!("bitfield payload: {:?}", bitfield);
 
     // resp len=0, id=interested
-    len_prefix = [0u8, 0u8, 0u8, 1u8];
+    len_prefix = [0u8, 0u8, 0u8, 0u8];
     msg_id[0] = 2;
     stream.write_all(&len_prefix).expect("resp len failed");
     stream.write_all(&msg_id).expect("interested failed");
