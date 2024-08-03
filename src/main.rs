@@ -362,7 +362,6 @@ fn send_request_message(
     block_offset: usize,
     block_length: usize,
 ) -> std::io::Result<()> {
-    println!("Sending req");
     let mut request_msg = Vec::with_capacity(17);
     request_msg.extend_from_slice(&(12u32).to_be_bytes()); // <len=0013>
     request_msg.push(6); // <id=6>
@@ -415,7 +414,7 @@ fn download_piece(
             5 => {
                 // Bitfield message
                 let mut bitfield = vec![0u8; message_length];
-                stream.read_exact(&mut bitfield)?;
+                // stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
             }
@@ -427,7 +426,7 @@ fn download_piece(
                 let mut file = File::create(output_fn)?;
                 file.write_all(&piece_data)?;
                 println!("Downloaded piece {} to {}", piece_idx, output_fn);
-                println!("piece hash {}", meta_info.piece_hashes[piece_idx]);
+                println!("piece hash {}", hash);
                 println!("file hash: {}", get_sha1(piece_data.as_slice()));
                 return Ok(());
             }
