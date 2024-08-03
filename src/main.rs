@@ -339,9 +339,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
     // Read the response from the peer
     let mut response = [0u8; 68];
     stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-    stream
-        .read_exact(&mut response)
-        .expect("Failed to read response");
+    stream.read_exact(&mut response)?;
 
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
