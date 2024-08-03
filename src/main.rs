@@ -504,7 +504,7 @@ fn main() {
                     continue;
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
-                let _res = download_piece(&mut stream, &meta_info, output_fn, idx);
+                //let _res = download_piece(&mut stream, &meta_info, output_fn, idx);
                 println!("Piece {:?} downloaded to {}.", idx, output_fn);
             }
         }
