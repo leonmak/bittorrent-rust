@@ -7,7 +7,9 @@ use sha1::{Digest, Sha1};
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
+use std::time::Duration;
 use std::{env, fs, path::Path};
+use tokio::time::Timeout;
 
 #[allow(dead_code)]
 fn decode_bencoded_value(
@@ -336,6 +338,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 
     // Read the response from the peer
     let mut response = [0u8; 68];
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
     stream
         .read_exact(&mut response)
         .expect("Failed to read response");
