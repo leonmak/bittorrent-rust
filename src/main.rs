@@ -398,7 +398,7 @@ fn download_piece(
         stream.read_exact(&mut msg_id)?;
 
         let payload_len = u32::from_be_bytes(len_prefix) as usize;
-        println!("msgid:{}, length:{}", msg_id[0], payload_len);
+        // println!("msgid:{}, length:{}", msg_id[0], payload_len);
         // https://wiki.theory.org/BitTorrentSpecification#Messages
 
         match msg_id[0] {
@@ -443,20 +443,20 @@ fn download_piece(
                 let mut begin_buf = [0u8; 4];
                 let chunk_len = payload_len - 9;
                 let mut chunk_buf = vec![0u8; chunk_len];
+                pieces_rcv += 1;
 
                 stream.read_exact(&mut idx_buf)?;
                 stream.read_exact(&mut begin_buf)?;
-                let chunk_idx = u32::from_be_bytes(idx_buf) as usize;
+                let _chunk_idx = u32::from_be_bytes(idx_buf) as usize;
                 let offset_idx = u32::from_be_bytes(begin_buf) as usize;
                 println!(
-                    "idx {} , offset {}, chunk_len {}",
-                    chunk_idx, offset_idx, chunk_len
+                    "chunk#{} , offset {}, chunk_len {}",
+                    pieces_rcv, offset_idx, chunk_len
                 );
                 stream.read_exact(&mut chunk_buf)?;
                 for (i, b) in chunk_buf.iter().enumerate() {
                     piece_buf[offset_idx + i] = *b;
                 }
-                pieces_rcv += 1;
                 println!("Received piece data of length {}", chunk_buf.len());
                 if pieces_rcv == num_pieces {
                     let dl_piece_hash = get_sha1(&piece_buf);
