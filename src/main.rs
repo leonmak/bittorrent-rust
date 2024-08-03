@@ -337,7 +337,6 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 
     // Read the response from the peer
     let mut response = [0u8; 68];
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.read_exact(&mut response)?;
 
     let mut cursor = Cursor::new(response);
@@ -494,11 +493,13 @@ fn main() {
                 println!("Connecting to: {:?}", peer_ipaddr);
                 let stream_res = TcpStream::connect(peer_ipaddr);
                 if stream_res.is_err() {
+                    eprint!("Failed connect, {}", stream_res.err().unwrap());
                     continue;
                 }
                 let mut stream = stream_res.unwrap();
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 if peer_id.is_err() {
+                    eprint!("Failed handshake, {}", peer_id.err().unwrap());
                     continue;
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
@@ -506,7 +507,7 @@ fn main() {
                 if res.is_ok() {
                     println!("Piece {:?} downloaded to {}.", idx, output_fn);
                 } else {
-                    eprint!("Failed, {}", res.err().unwrap());
+                    eprint!("Failed download, {}", res.err().unwrap());
                 }
             }
         }
