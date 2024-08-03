@@ -387,6 +387,7 @@ fn download_piece(
     loop {
         // Read the length prefix (4 bytes)
         stream.read_exact(&mut len_prefix)?;
+        println!("len b{:?}", len_prefix);
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
 
