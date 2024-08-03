@@ -498,6 +498,7 @@ fn main() {
                     continue;
                 }
                 let mut stream = stream_res.unwrap();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 if peer_id.is_err() {
                     eprint!("Failed handshake, {}", peer_id.err().unwrap());
