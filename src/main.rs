@@ -423,14 +423,14 @@ fn download_piece(
                 let mut idx_buf = [0u8; 4];
                 let mut begin_buf = [0u8; 4];
                 let mut block_buf = vec![0u8; payload_len - 9];
+
+                stream.read_exact(&mut idx_buf)?;
+                stream.read_exact(&mut begin_buf)?;
                 println!(
                     "idx {} , offset {}",
                     u32::from_be_bytes(idx_buf),
                     u32::from_be_bytes(begin_buf)
                 );
-
-                stream.read_exact(&mut idx_buf)?;
-                stream.read_exact(&mut begin_buf)?;
                 stream.read_exact(&mut block_buf)?;
 
                 println!("Received piece data of length {}", block_buf.len());
