@@ -20,8 +20,8 @@ fn decode_bencoded_value(
 
     match encoded_value.iter().next() {
         Some(str_len) if str_len.is_ascii_digit() => {
-            // example 5:asdfs, num is the chars (utf8 chars may have >1 byte)
-            // value is string or byte array (peers/pieces)
+            // example 5:asdfs, num:val (num is bytes in payload, utf8 chars may have >1 byte)
+            // parse value is string or byte array (peers/pieces)
             let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
             let num_str = str::from_utf8(&encoded_value[..colon_index]);
             let num_chars = usize::from_str_radix(num_str.unwrap(), 10).unwrap();
