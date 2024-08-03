@@ -1,3 +1,4 @@
+mod utils;
 use core::str;
 use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
@@ -7,35 +8,56 @@ use std::fs::OpenOptions;
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::{env, fs, path::Path};
+use utils::utf8_len;
 
 #[allow(dead_code)]
 fn decode_bencoded_value(
     encoded_value: &[u8],
     helper: &mut HelperInfo,
 ) -> (serde_json::Value, usize) {
+    println!("[u8]:{:?}", encoded_value);
+    println!("enc: {:?}", String::from_utf8_lossy(encoded_value));
+
     match encoded_value.iter().next() {
         Some(str_len) if str_len.is_ascii_digit() => {
-            // example 5:asdfs
-            // mostly it will be valid utf8 string (char code)
+            // example 5:asdfs, num is the chars (utf8 chars may have >1 byte)
+            // value is string or byte array (peers/pieces)
             let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
             let num_str = str::from_utf8(&encoded_value[..colon_index]);
-            let number = i64::from_str_radix(num_str.unwrap(), 10).unwrap();
-            let end_idx = colon_index + 1 + number as usize;
-            let target_slice = &encoded_value[colon_index + 1..end_idx];
+            let mut num_chars = usize::from_str_radix(num_str.unwrap(), 10).unwrap();
+            let start_idx = colon_index + 1;
+            // println!("{} || {:?}", num_chars, target_slice);
 
             // it will be invalid utf8 if it was a key 'pieces', return array in that case
             // you can use unsafe string, but it will not be checked and string will panic
             if helper.is_bytes_val {
-                return (json!(target_slice), end_idx);
+                let mut byte_count: usize = 0;
+                let mut i = start_idx;
+                while num_chars > 0 {
+                    num_chars -= 1;
+                    let byte = encoded_value[i];
+                    let len = utf8_len(byte) as usize;
+                    println!("num_chars:{}, char:{}", num_chars, len);
+                    byte_count += len;
+                    i += len;
+                }
+                let end_idx = start_idx + byte_count;
+                helper.is_bytes_val = false;
+                let val = &encoded_value[start_idx..end_idx + 1];
+                (json!(val), i)
+            } else {
+                // strings are valid utf8-encoded byte slice
+                let end_idx = start_idx + num_chars;
+                let target_slice = &encoded_value[start_idx..end_idx];
+                let string = String::from_utf8(target_slice.to_vec()).unwrap();
+                (json!(string), end_idx)
             }
-            // strings are valid utf8-encoded byte slice
-            let string = String::from_utf8(target_slice.to_vec()).unwrap();
-            return (json!(string), end_idx);
         }
         Some(i) if *i == b'i' => {
-            let end_index = encoded_value.iter().position(|&x| x == b'e').unwrap();
+            let end_index: usize = encoded_value.iter().position(|&x| x == b'e').unwrap();
             let num_str = str::from_utf8(&encoded_value[1..end_index]);
-            let number = i64::from_str_radix(num_str.unwrap(), 10).unwrap();
+            let number = u64::from_str_radix(num_str.unwrap(), 10).unwrap();
+            println!("int {}", number);
             return (json!(number), end_index + 1);
         }
         Some(c) if *c == b'l' => {
@@ -60,13 +82,14 @@ fn decode_bencoded_value(
             let mut remaining = &encoded_value[1..];
             let mut len = 1;
             while !remaining.is_empty() {
-                if *remaining.iter().next().unwrap() == b'e' {
+                if remaining[0] == b'e' {
+                    len += 1;
                     break;
                 }
                 let (key, key_len) = decode_bencoded_value(&remaining, helper);
                 len += key_len;
                 remaining = &remaining[key_len..];
-                print!("key:{}", key);
+                // println!("key:'{}' ", key);
                 let key_val = key.as_str().unwrap();
                 helper.is_bytes_val = key_val == "pieces" || key_val == "peers";
                 if key_val == "info" {
@@ -85,16 +108,19 @@ fn decode_bencoded_value(
                 }
 
                 remaining = &remaining[val_len..];
-                // println!("{dict:?} {remaining:?}");
+                // println!("dict {dict:?}");
+                // println!("remaining {remaining:?}");
 
                 // accumulate start index if have not found the start of info_dict
                 if !helper.found_info_start {
                     helper.info_start += val_len + key_len; // add key + value + colon
                 }
             }
-            return (json!(dict), len + 1);
+            return (json!(dict), len);
         }
-        _ => (serde_json::Value::Null, 0),
+        _ => {
+            panic!("invalid value")
+        }
     }
 }
 
@@ -143,13 +169,12 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
             let (decoded_value, _len) =
                 decode_bencoded_value(encoded_value.as_slice(), &mut helper);
 
-            // println!("{:?}", decoded_value);
+            println!("{:?}", decoded_value);
             let url = decoded_value.get("announce")?.to_string();
             let info_dict = decoded_value.get("info")?.clone();
             let length = info_dict.get("length")?.to_string();
-
             let info_dict_slice = &encoded_value[helper.info_start..helper.info_end];
-            // println!("debug {}", String::from_utf8_lossy(info_dict));
+
             let piece_len = info_dict.get("piece length")?.to_string();
             let piece_hashes = info_dict.get("pieces")?.as_array()?.clone();
             let meta_info = MetaInfo {
@@ -159,7 +184,7 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
                 piece_len,
                 piece_hashes: pieces_sha1(piece_hashes),
             };
-
+            // println!("debug {:?}", meta_info);
             Some(meta_info)
         }
         Err(e) => {
