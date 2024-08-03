@@ -348,7 +348,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 }
 
 fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
-    let interested_msg = [0, 0, 0, 0, 2]; // <len=0001><id=2>
+    let interested_msg = [0, 0, 0, 1, 2]; // <len=0001><id=2>
     stream.write_all(&interested_msg)?;
     Ok(())
 }
@@ -498,7 +498,7 @@ fn main() {
                     continue;
                 }
                 let mut stream = stream_res.unwrap();
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(6)));
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 if peer_id.is_err() {
                     eprint!("Failed handshake, {}", peer_id.err().unwrap());
