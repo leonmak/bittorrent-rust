@@ -420,11 +420,15 @@ fn download_piece(
                     let piece_begin = CHUNK_SIZE * (chunk_idx as u64);
                     let last_chunk = chunk_idx == num_chunks - 1;
                     let chunk_len = if last_chunk { rem_size } else { CHUNK_SIZE };
-                    send_request_message(&mut stream, piece_idx, piece_begin, chunk_len)?;
-                    println!(
-                        "Sent Request #{}, offset {}, chunk_len {}",
-                        chunk_idx, piece_begin, chunk_len
-                    );
+                    let res = send_request_message(&mut stream, piece_idx, piece_begin, chunk_len);
+                    if res.is_ok() {
+                        println!(
+                            "Sent Request #{}, offset {}, chunk_len {}",
+                            chunk_idx, piece_begin, chunk_len
+                        );
+                    } else {
+                        eprint!("{}", res.err().unwrap());
+                    }
                 }
             }
             5 => {
