@@ -342,8 +342,6 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 
     let mut cursor = Cursor::new(response);
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
-    // print each byte as its hex char
-    println!("{:?}", handshake);
     Ok(format!(
         "{}",
         handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
