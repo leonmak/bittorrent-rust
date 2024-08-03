@@ -350,84 +350,72 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
     )
 }
 
+fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
+    let interested_msg = [0, 0, 0, 1, 2]; // <len=0001><id=2>
+    stream.write_all(&interested_msg)?;
+    Ok(())
+}
+
+fn send_request_message(
+    stream: &mut TcpStream,
+    piece_index: usize,
+    block_offset: usize,
+    block_length: usize,
+) -> std::io::Result<()> {
+    let mut request_msg = Vec::with_capacity(17);
+    request_msg.extend_from_slice(&(13u32).to_be_bytes()); // <len=0013>
+    request_msg.push(6); // <id=6>
+    request_msg.extend_from_slice(&(piece_index as u32).to_be_bytes()); // <index>
+    request_msg.extend_from_slice(&(block_offset as u32).to_be_bytes()); // <begin>
+    request_msg.extend_from_slice(&(block_length as u32).to_be_bytes()); // <length>
+    stream.write_all(&request_msg)?;
+    Ok(())
+}
+
 const CHUNK_SIZE: usize = 1 << 14;
 fn download_piece(
-    mut stream: &TcpStream,
-    hashes: &Vec<String>,
+    mut stream: &mut TcpStream,
+    piece_hash: &str,
     output_fn: &str,
+    piece_idx: usize,
 ) -> Result<(), Error> {
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
+    let mut len_prefix = [0u8; 4];
+    let mut msg_id = [0u8; 1];
 
-    // recv bitfield
-    let mut len_prefix: [u8; 4] = [0; 4];
-    let mut msg_id: [u8; 1] = [0; 1];
-    stream.read_exact(&mut len_prefix)?;
-    stream.read_exact(&mut msg_id)?;
+    loop {
+        // Read the length prefix (4 bytes)
+        stream.read_exact(&mut len_prefix)?;
+        let message_length = u32::from_be_bytes(len_prefix) as usize;
 
-    let mut message_length = u32::from_be_bytes(len_prefix) as usize;
-    println!("bitfield len: {}, id: {}", message_length, msg_id[0]);
+        // Read the message ID (1 byte)
+        stream.read_exact(&mut msg_id)?;
 
-    // Read the bitfield payload - 1 means have piece
-    let mut bitfield = Vec::with_capacity(message_length);
-    stream.read_exact(&mut bitfield)?;
-    println!("bitfield payload: {:?}", bitfield);
-
-    // resp len=0, id=interested
-    len_prefix = [0u8, 0u8, 0u8, 0u8];
-    msg_id[0] = 2;
-    stream.write_all(&len_prefix)?;
-    stream.write_all(&msg_id)?;
-    stream.write_all(&[0])?;
-    println!("send interested");
-
-    // rcv unchoke
-    stream.read_exact(&mut len_prefix)?;
-    stream.read_exact(&mut msg_id)?;
-    message_length = u32::from_be_bytes(len_prefix) as usize;
-    println!("unchoke len: {}, id: {}", message_length, msg_id[0]);
-
+        match msg_id[0] {
+            0 => {
+                // Choke message
+                println!("Peer choked us, waiting");
+            }
+            1 => {
+                // Unchoke message
+                println!("Peer unchoked us");
+                send_request_message(&mut stream, piece_idx, piece_idx * CHUNK_SIZE, CHUNK_SIZE)?;
+            }
+            5 => {
+                // Bitfield message
+                let mut bitfield = vec![0u8; message_length - 1];
+                stream.read_exact(&mut bitfield)?;
+                println!("Received bitfield: {:?}", bitfield);
+                send_interested_message(&mut stream)?;
+            }
+            _ => {
+                // Ignore other messages for now
+                let mut payload = vec![0u8; message_length - 1];
+                stream.read_exact(&mut payload)?;
+            }
+        }
+    }
     // send 6:request to each downloader
-    hashes.iter().enumerate().for_each(|(idx, chunk)| {
-        // Break the piece into blocks of 16 kiB (16 * 1024 bytes)
-        let begin = idx * CHUNK_SIZE;
-        let length = if idx < bitfield.len() - 1 {
-            CHUNK_SIZE
-        } else {
-            chunk.len()
-        };
-        let mut payload: Vec<u8> = Vec::new();
-        let idx_32: u32 = idx.try_into().unwrap();
-        let begin_32: u32 = begin.try_into().unwrap();
-        let len_32: u32 = length.try_into().unwrap();
-        payload.extend_from_slice(&idx_32.to_be_bytes());
-        payload.extend_from_slice(&begin_32.to_be_bytes());
-        payload.extend_from_slice(&len_32.to_be_bytes());
-
-        let payload_len_32: u32 = payload.len().try_into().unwrap();
-        let mut req_message: Vec<u8> = Vec::with_capacity(13);
-        req_message.extend(payload_len_32.to_be_bytes()); // prefix len
-        req_message.extend(vec![6].as_slice()); // 6=request
-        req_message.extend(payload.as_slice()); // payload: selector=id,offset,len
-        println!("sending request: {:?}", req_message);
-        stream.write(req_message.as_slice()).expect("req failed");
-
-        stream.read_exact(&mut len_prefix).expect("len failed");
-        stream.read_exact(&mut msg_id).expect("id failed");
-        let mut block: Vec<u8> = Vec::new();
-        stream.read_to_end(&mut block).expect("block read failed");
-        let block_hash = get_sha1(block.as_slice());
-        let expected_hash = hashes[idx].clone();
-        let same = block_hash == expected_hash;
-        println!("{:?} == {:?} {}", block_hash, expected_hash, same);
-        // save block to output fn
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .append(true)
-            .open(output_fn)
-            .unwrap();
-        file.write_all(block.as_slice()).unwrap();
-    });
     Ok(())
 }
 
@@ -477,18 +465,20 @@ fn main() {
             // -o /tmp/test-piece-0 sample.torrent 0
             let output_fn = &args[3];
             let filename = &args[4];
-            let idx = &args[5];
+            let idx = usize::from_str_radix(&args[5], 10).unwrap();
             let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
             let peer_ips = fmt_ip_str(&peer_info.peers);
             for peer_ipaddr in peer_ips {
                 println!("Connecting to: {:?}", peer_ipaddr);
-                let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
+                let mut stream =
+                    TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 println!("Handshake Peer ID: {}", peer_id);
 
-                let a = download_piece(&stream, &meta_info.piece_hashes, output_fn);
+                let hash = meta_info.piece_hashes[idx].as_str();
+                let a = download_piece(&mut stream, hash, output_fn, idx);
                 println!("{:?}", a);
             }
         }
