@@ -414,7 +414,7 @@ fn download_piece(
             5 => {
                 // Bitfield message
                 let mut bitfield = vec![0u8; message_length];
-                // stream.read_exact(&mut bitfield)?;
+                stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
             }
