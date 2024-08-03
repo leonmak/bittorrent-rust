@@ -476,13 +476,14 @@ fn main() {
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
             let peer_ips = fmt_ip_str(&peer_info.peers);
-            let peer_ipaddr = peer_ips.get(0).unwrap();
-            println!("Connecting to: {:?}", peer_ipaddr);
-            let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
-            let peer_id = send_handshake(&stream, &meta_info.info_hash);
-            println!("Handshake Peer ID: {}", peer_id);
-            download_piece(&stream, &meta_info.piece_hashes, output_fn);
-            println!("Piece {} downloaded to {}", idx, output_fn);
+            for peer_ipaddr in peer_ips {
+                println!("Connecting to: {:?}", peer_ipaddr);
+                let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
+                let peer_id = send_handshake(&stream, &meta_info.info_hash);
+                println!("Handshake Peer ID: {}", peer_id);
+                download_piece(&stream, &meta_info.piece_hashes, output_fn);
+                println!("Piece {} downloaded to {}", idx, output_fn);
+            }
         }
         _ => {
             println!("unknown command: {}", args[1])
