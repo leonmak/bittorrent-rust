@@ -366,7 +366,6 @@ fn send_request_message(
     request_msg.extend_from_slice(&(block_offset as u32).to_be_bytes()); // <begin>
     request_msg.extend_from_slice(&(block_length as u32).to_be_bytes()); // <length>
     stream.write_all(&request_msg)?;
-    println!("Sent request");
     Ok(())
 }
 const CHUNK_SIZE: u64 = 16834;
@@ -422,6 +421,10 @@ fn download_piece(
                     let last_chunk = chunk_idx == num_chunks - 1;
                     let chunk_len = if last_chunk { rem_size } else { CHUNK_SIZE };
                     send_request_message(&mut stream, piece_idx, piece_begin, chunk_len)?;
+                    println!(
+                        "Sent Request #{}, offset {}, chunk_len {}",
+                        chunk_idx, piece_begin, chunk_len
+                    );
                 }
             }
             5 => {
@@ -452,7 +455,7 @@ fn download_piece(
                 if pieces_rcv == num_pieces {
                     let dl_piece_hash = get_sha1(&piece_buf);
                     let mut file = File::create(output_fn)?;
-                    file.write_all(&chunk_buf)?;
+                    file.write_all(&piece_buf)?;
                     println!("Downloaded piece {} to {}", piece_idx, output_fn);
                     println!("piece hash {}", expect_hash);
                     println!("file hash: {}", dl_piece_hash);
