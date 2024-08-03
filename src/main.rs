@@ -420,7 +420,7 @@ fn download_piece(
             }
             7 => {
                 // Piece message
-                let mut piece_data = vec![0u8; message_length];
+                let mut piece_data = vec![0u8; message_length - 1];
                 stream.read_exact(&mut piece_data)?;
                 println!("Received piece data of length {}", piece_data.len());
                 let mut file = File::create(output_fn)?;
