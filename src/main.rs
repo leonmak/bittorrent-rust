@@ -413,14 +413,14 @@ fn download_piece(
             }
             5 => {
                 // Bitfield message
-                let mut bitfield = vec![0u8; message_length - 1];
+                let mut bitfield = vec![0u8; message_length];
                 stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
             }
             7 => {
                 // Piece message
-                let mut piece_data = vec![0u8; message_length - 1];
+                let mut piece_data = vec![0u8; message_length];
                 stream.read_exact(&mut piece_data)?;
                 println!("Received piece data of length {}", piece_data.len());
                 let mut file = File::create(output_fn)?;
