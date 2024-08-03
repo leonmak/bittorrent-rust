@@ -1,156 +1,18 @@
+mod structs;
+mod utils;
+
 use anyhow::Error;
-use core::str;
 use reqwest::blocking::get;
-use serde::{Deserialize, Serialize};
-use serde_json::{self, json, Value};
+use serde_json::Value;
 use sha1::{Digest, Sha1};
+use std::fmt::Write;
 use std::fs::File;
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::{env, fs, path::Path};
-
-#[allow(dead_code)]
-fn decode_bencoded_value(
-    encoded_value: &[u8],
-    helper: &mut HelperInfo,
-) -> (serde_json::Value, usize) {
-    // println!("[u8]:{:?}", encoded_value);
-    // println!("enc: {:?}", String::from_utf8_lossy(encoded_value));
-
-    match encoded_value.iter().next() {
-        Some(str_len) if str_len.is_ascii_digit() => {
-            // example 5:asdfs, num:val (num is bytes in payload, utf8 chars may have >1 byte)
-            // parse value is string or byte array (peers/pieces)
-            let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
-            let num_str = str::from_utf8(&encoded_value[..colon_index]);
-            let num_chars = usize::from_str_radix(num_str.unwrap(), 10).unwrap();
-            let start_idx = colon_index + 1;
-            // println!("{} || {:?}", num_chars, target_slice);
-
-            // it will be invalid utf8 if it was a key 'pieces', return array in that case
-            // you can use unsafe string, but it will not be checked and string will panic
-            if helper.is_bytes_val {
-                let end_idx = start_idx + num_chars;
-                helper.is_bytes_val = false;
-                let val = &encoded_value[start_idx..end_idx];
-                (json!(val), end_idx)
-            } else {
-                // strings are valid utf8-encoded byte slice
-                let end_idx = start_idx + num_chars;
-                let target_slice = &encoded_value[start_idx..end_idx];
-                let string = String::from_utf8(target_slice.to_vec()).unwrap();
-                (json!(string), end_idx)
-            }
-        }
-        Some(i) if *i == b'i' => {
-            let end_index: usize = encoded_value.iter().position(|&x| x == b'e').unwrap();
-            let is_neg = encoded_value[1] == b'-';
-            let start_index = if is_neg { 2 } else { 1 };
-            let num_str = str::from_utf8(&encoded_value[start_index..end_index]);
-            let number = i64::from_str_radix(num_str.unwrap(), 10).unwrap();
-            // println!("int {}", number);
-            return (json!(if is_neg { -1 } else { 1 } * number), end_index + 1);
-        }
-        Some(c) if *c == b'l' => {
-            let mut list = Vec::new();
-            let mut remaining = &encoded_value[1..];
-            let mut len = 1;
-            while !remaining.is_empty() {
-                // println!("{remaining:?}");
-                if *remaining.iter().next().unwrap() == b'e' {
-                    break;
-                }
-                let (value, val_len) = decode_bencoded_value(remaining, helper);
-                len += val_len;
-                list.push(value);
-                remaining = &remaining[val_len..];
-            }
-            return (json!(list), len + 1);
-        }
-        Some(c) if *c == b'd' => {
-            let mut dict: serde_json::Map<std::string::String, serde_json::Value> =
-                serde_json::Map::new();
-            let mut remaining = &encoded_value[1..];
-            let mut len = 1;
-            while !remaining.is_empty() {
-                if remaining[0] == b'e' {
-                    len += 1;
-                    break;
-                }
-                let (key, key_len) = decode_bencoded_value(&remaining, helper);
-                len += key_len;
-                remaining = &remaining[key_len..];
-                // println!("key:'{}' ", key);
-                let key_val = key.as_str().unwrap();
-                helper.is_bytes_val = key_val == "pieces" || key_val == "peers";
-                if key_val == "info" {
-                    // println!("Found info at {}", info_hash_meta.start);
-                    helper.found_info_start = true;
-                    helper.info_start += 6; // avoid 4:info
-                }
-                // println!("key_len {}", key_len);
-
-                let (val, val_len) = decode_bencoded_value(&remaining, helper);
-                // println!(" val:{}", val);
-                len += val_len;
-                dict.insert(key.as_str().unwrap().to_owned(), val);
-                if helper.found_info_start {
-                    helper.info_end = helper.info_start + val_len;
-                }
-
-                remaining = &remaining[val_len..];
-                // println!("dict {dict:?}");
-                // println!("remaining {remaining:?}");
-
-                // accumulate start index if have not found the start of info_dict
-                if !helper.found_info_start {
-                    helper.info_start += val_len + key_len; // add key + value + colon
-                }
-            }
-            return (json!(dict), len);
-        }
-        _ => {
-            panic!("invalid value")
-        }
-    }
-}
-
-/*
-announce: URL to a "tracker", which is a central server that keeps track of peers participating in the sharing of a torrent.
-info: A dictionary with keys:
-    length: size of the file in bytes, for single-file torrents
-    name: suggested name to save the file / directory as
-    piece length: number of bytes in each piece
-    pieces: concatenated SHA-1 hashes of each piece
- */
-
-#[derive(Debug)]
-struct MetaInfo {
-    announce: String,
-    length: String,
-    info_hash: String,
-    piece_len: String,
-    piece_hashes: Vec<String>,
-}
-
-struct HelperInfo {
-    info_start: usize,
-    info_end: usize,
-    found_info_start: bool,
-    is_bytes_val: bool,
-}
-
-impl HelperInfo {
-    fn new() -> Self {
-        HelperInfo {
-            info_start: 1, // exclude first d
-            info_end: 0,
-            found_info_start: false,
-            is_bytes_val: false,
-        }
-    }
-}
+use structs::{read_handshake_message, HelperInfo, MetaInfo, PeerInfo};
+use utils::decode_bencoded_value;
 
 // https://www.bittorrent.org/beps/bep_0003.html
 fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
@@ -184,8 +46,6 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
         }
     }
 }
-
-use std::fmt::Write;
 
 fn pieces_sha1(pieces: Vec<Value>) -> Vec<String> {
     if pieces.len() % 20 != 0 {
@@ -250,12 +110,6 @@ fn hex_to_enc(hex_str: &str) -> String {
     url
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-struct PeerInfo {
-    interval: u64,
-    peers: Vec<u8>,
-}
-
 fn get_tracker_url(meta: &MetaInfo) -> Option<String> {
     let info_hash = meta.info_hash.clone();
     let url = format!(
@@ -294,33 +148,7 @@ fn fmt_ip_str(ip_str: &Vec<u8>) -> Vec<String> {
     res
 }
 
-#[derive(Debug)]
-struct HandshakeMessage {
-    pstr_len: u8,
-    pstr: [u8; 19],
-    reserved: [u8; 8],
-    info_hash: [u8; 20],
-    peer_id: [u8; 20],
-}
-
 use std::io::Read as _;
-fn read_handshake_message<R: std::io::Read>(reader: &mut R) -> std::io::Result<HandshakeMessage> {
-    let mut handshake = HandshakeMessage {
-        pstr_len: 0,
-        pstr: [0; 19],
-        reserved: [0; 8],
-        info_hash: [0; 20],
-        peer_id: [0; 20],
-    };
-    reader.read_exact(std::slice::from_mut(&mut handshake.pstr_len))?;
-    reader.read_exact(&mut handshake.pstr)?;
-    reader.read_exact(&mut handshake.reserved)?;
-    reader.read_exact(&mut handshake.info_hash)?;
-    reader.read_exact(&mut handshake.peer_id)?;
-
-    Ok(handshake)
-}
-
 fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Error> {
     // send a message with TCP
     let peer_id = "00112233445566778899"; // My Peer ID (20 bytes)
@@ -331,7 +159,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
     handshake_msg.extend_from_slice(&[0u8; 8]); // Reserved bytes (8 bytes)
     handshake_msg.extend_from_slice(hex_str_as_bytes(info_hash).as_slice()); // Info hash (20 bytes)
     handshake_msg.extend_from_slice(peer_id.as_bytes()); // Peer ID (20 bytes)
-    println!("Sending {} bytes", handshake_msg.len());
+    println!("Handshake {} bytes", handshake_msg.len());
     // Send the handshake message
     stream
         .write_all(&handshake_msg)
@@ -370,21 +198,15 @@ fn send_request_message(
     stream.write_all(&request_msg)?;
     Ok(())
 }
+
 const CHUNK_SIZE: u64 = 16384;
 fn download_piece(
     mut stream: &mut TcpStream,
     meta_info: &MetaInfo,
-    output_fn: &str,
     piece_idx: usize,
-) -> Result<(), std::io::Error> {
+    piece_size: u64,
+) -> Result<Vec<u8>, std::io::Error> {
     let expect_hash = meta_info.piece_hashes[piece_idx as usize].as_str();
-    let file_len = u64::from_str_radix(meta_info.length.as_str(), 10).unwrap();
-    let num_pieces = meta_info.piece_hashes.len();
-    let is_last_piece = piece_idx == num_pieces - 1;
-    let mut piece_size = u64::from_str_radix(meta_info.piece_len.as_str(), 10).unwrap();
-    if is_last_piece {
-        piece_size = file_len % piece_size;
-    }
 
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
     let mut len_prefix = [0u8; 4];
@@ -423,14 +245,15 @@ fn download_piece(
                     let chunk_len = if odd_chunk { rem_size } else { CHUNK_SIZE };
                     let res = send_request_message(&mut stream, piece_idx, piece_begin, chunk_len);
                     if res.is_ok() {
-                        println!(
-                            "Sent Request #{}, offset {}, chunk_len {}",
-                            chunk_idx, piece_begin, chunk_len
-                        );
+                        // println!(
+                        //     "Sent Request #{}, offset {}, chunk_len {}",
+                        //     chunk_idx, piece_begin, chunk_len
+                        // );
                     } else {
                         eprint!("{}", res.err().unwrap());
                     }
                 }
+                println!("Sent {} chunk requests", num_chunks)
             }
             5 => {
                 // Bitfield message
@@ -440,7 +263,7 @@ fn download_piece(
                 send_interested_message(&mut stream)?;
             }
             7 => {
-                // Piece message block together
+                // Accumulate message chunks, until all chunks for piece received
                 let mut idx_buf = [0u8; 4];
                 let mut begin_buf = [0u8; 4];
                 let chunk_len = payload_len - 9;
@@ -451,23 +274,21 @@ fn download_piece(
                 stream.read_exact(&mut begin_buf)?;
                 let _chunk_idx = u32::from_be_bytes(idx_buf) as usize;
                 let offset_idx = u32::from_be_bytes(begin_buf) as usize;
-                println!(
-                    "chunk left {} , offset {}, chunk_len {}",
-                    num_chunks, offset_idx, chunk_len
-                );
+                // println!(
+                //     "chunk left {} , offset {}, chunk_len {}",
+                //     num_chunks, offset_idx, chunk_len
+                // );
                 stream.read_exact(&mut chunk_buf)?;
                 for (i, b) in chunk_buf.iter().enumerate() {
                     piece_buf[offset_idx + i] = *b;
                 }
-                println!("Received piece data of length {}", chunk_buf.len());
+                println!("Received chunk length {}", chunk_buf.len());
                 if num_chunks == 0 {
                     let dl_piece_hash = get_sha1(&piece_buf);
-                    let mut file = File::create(output_fn)?;
-                    file.write_all(&piece_buf)?;
-                    println!("Downloaded piece {} to {}", piece_idx, output_fn);
-                    println!("piece hash {}", expect_hash);
-                    println!("file hash: {}", dl_piece_hash);
-                    return Ok(());
+                    if expect_hash != dl_piece_hash {
+                        panic!("Piece hash is not matching")
+                    }
+                    return Ok(piece_buf);
                 }
             }
             _ => {
@@ -528,10 +349,17 @@ fn main() {
             // -o /tmp/test-piece-0 sample.torrent 0
             let output_fn = &args[3];
             let filename = &args[4];
-            let idx = usize::from_str_radix(&args[5], 10).unwrap();
+            let piece_idx = usize::from_str_radix(&args[5], 10).unwrap();
             let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
+            let file_len = u64::from_str_radix(meta_info.length.as_str(), 10).unwrap();
+            let num_pieces = meta_info.piece_hashes.len();
+            let is_last_piece = piece_idx == num_pieces - 1;
+            let mut piece_size = u64::from_str_radix(meta_info.piece_len.as_str(), 10).unwrap();
+            if is_last_piece {
+                piece_size = file_len % piece_size;
+            }
             let peer_ips = fmt_ip_str(&peer_info.peers);
             for peer_ipaddr in peer_ips {
                 println!("Connecting to: {:?}", peer_ipaddr);
@@ -548,14 +376,56 @@ fn main() {
                     continue;
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
-                let res = download_piece(&mut stream, &meta_info, output_fn, idx);
+                let res = download_piece(&mut stream, &meta_info, piece_idx, piece_size);
                 if res.is_ok() {
-                    println!("Piece {:?} downloaded to {}.", idx, output_fn);
-                    break;
+                    println!("Piece {:?} downloaded to {}.", piece_idx, output_fn);
+                    let mut file = File::create(output_fn).unwrap();
+                    let piece_buf = res.unwrap();
+                    file.write_all(&piece_buf).unwrap();
+                    println!("Downloaded piece {} to {}", piece_idx + 1, output_fn);
                 } else {
                     eprint!("Failed download, {}", res.err().unwrap());
                 }
             }
+        }
+        "download" => {
+            // -o /tmp/test-piece-0 sample.torrent
+            let output_fn = &args[3];
+            let filename = &args[4];
+            let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
+            let file_size = u64::from_str_radix(&meta_info.length, 10).unwrap();
+            let piece_size = u64::from_str_radix(&meta_info.piece_len, 10).unwrap();
+            let mut file_buf = Vec::with_capacity(file_size as usize);
+            println!("{:?}", meta_info);
+            let peer_info = read_peer_url(&meta_info).unwrap();
+            let num_pieces = meta_info.piece_hashes.len();
+            println!("Downloading {} pieces", num_pieces);
+
+            for piece_idx in 0..num_pieces {
+                println!("# Fetching piece #{}", piece_idx + 1);
+                for peer_ipaddr in fmt_ip_str(&peer_info.peers) {
+                    let stream_res = TcpStream::connect(peer_ipaddr);
+                    let mut stream = stream_res.unwrap();
+                    let peer_id = send_handshake(&stream, &meta_info.info_hash);
+                    let piece_size = if piece_idx == num_pieces - 1 {
+                        file_size % piece_size
+                    } else {
+                        piece_size
+                    };
+                    println!("{:?}", peer_id);
+                    let res = download_piece(&mut stream, &meta_info, piece_idx, piece_size);
+                    if res.is_ok() {
+                        file_buf.extend_from_slice(res.unwrap().as_slice());
+                        println!("Downloaded piece {}\n", piece_idx + 1);
+                        break;
+                    } else {
+                        eprintln!("Failed download #{}, {}", piece_idx + 1, res.err().unwrap());
+                    }
+                }
+            }
+            let mut file = File::create(output_fn).unwrap();
+            file.write_all(&file_buf.as_slice()).unwrap();
+            println!("Downloaded file {}", output_fn);
         }
         _ => {
             println!("unknown command: {}", args[1])
