@@ -368,7 +368,7 @@ fn send_request_message(
     stream.write_all(&request_msg)?;
     Ok(())
 }
-const CHUNK_SIZE: u64 = 16834;
+const CHUNK_SIZE: u64 = 16384;
 fn download_piece(
     mut stream: &mut TcpStream,
     meta_info: &MetaInfo,
