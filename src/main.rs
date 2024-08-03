@@ -4,7 +4,7 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use sha1::{Digest, Sha1};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::{env, fs, path::Path};
@@ -403,14 +403,23 @@ fn download_piece(
             }
             5 => {
                 // Bitfield message
-                let mut bitfield = vec![0u8; message_length - 1];
+                let mut bitfield = vec![0u8; message_length];
                 stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
             }
+            7 => {
+                // Piece message
+                let mut piece_data = vec![0u8; message_length];
+                stream.read_exact(&mut piece_data)?;
+                println!("Received piece data of length {}", piece_data.len());
+                let mut file = File::create(output_fn)?;
+                file.write_all(&piece_data)?;
+                return Ok(());
+            }
             _ => {
                 // Ignore other messages for now
-                let mut payload = vec![0u8; message_length - 1];
+                let mut payload = vec![0u8; message_length];
                 stream.read_exact(&mut payload)?;
             }
         }
