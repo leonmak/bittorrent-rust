@@ -391,6 +391,7 @@ fn download_piece(
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
         println!("msgid:{}, length:{}", msg_id[0], payload_len);
+        // https://wiki.theory.org/BitTorrentSpecification#Messages
 
         match msg_id[0] {
             0 => {
@@ -410,7 +411,7 @@ fn download_piece(
             }
             5 => {
                 // Bitfield message
-                let mut bitfield = vec![0u8; payload_len];
+                let mut bitfield = vec![0u8; payload_len - 1];
                 stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
