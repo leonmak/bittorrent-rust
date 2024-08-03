@@ -348,7 +348,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 }
 
 fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
-    let interested_msg = [0, 0, 0, 1, 2]; // <len=0001><id=2>
+    let interested_msg = [0, 0, 0, 0, 2]; // <len=0001><id=2>
     stream.write_all(&interested_msg)?;
     Ok(())
 }
@@ -418,7 +418,7 @@ fn download_piece(
             }
             7 => {
                 // Piece message
-                let mut piece_data = vec![0u8; payload_len];
+                let mut piece_data = vec![0u8; payload_len - 9];
                 stream.read_exact(&mut piece_data)?;
                 println!("Received piece data of length {}", piece_data.len());
                 let mut file = File::create(output_fn)?;
@@ -507,6 +507,7 @@ fn main() {
                 let res = download_piece(&mut stream, &meta_info, output_fn, idx);
                 if res.is_ok() {
                     println!("Piece {:?} downloaded to {}.", idx, output_fn);
+                    break;
                 } else {
                     eprint!("Failed download, {}", res.err().unwrap());
                 }
