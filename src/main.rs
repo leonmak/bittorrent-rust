@@ -386,10 +386,10 @@ fn download_piece(
     loop {
         // Read the length prefix (4 bytes)
         stream.read_exact(&mut len_prefix)?;
-        let payload_len = u32::from_be_bytes(len_prefix) as usize;
-
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
+
+        let payload_len = u32::from_be_bytes(len_prefix) as usize;
         println!("msgid:{}, length:{}", msg_id[0], payload_len);
         // https://wiki.theory.org/BitTorrentSpecification#Messages
 
@@ -408,7 +408,7 @@ fn download_piece(
                 } else {
                     piece_len as usize
                 };
-                println!("Requesting block {} of length {}", offset, block_length);
+                println!("Requesting offset {} of length {}", offset, block_length);
                 send_request_message(&mut stream, piece_idx, offset, block_length)?;
             }
             5 => {
@@ -420,13 +420,18 @@ fn download_piece(
             }
             7 => {
                 // Piece message
-                let mut piece_data = vec![0u8; payload_len - 9];
-                stream.read_exact(&mut piece_data)?;
-                println!("Received piece data of length {}", piece_data.len());
-                let file_hash = get_sha1(piece_data.as_slice());
+                let mut idx_buf = [0u8; 4];
+                let mut begin_buf = [0u8; 4];
+                let mut block_buf = vec![0u8; payload_len - 9];
+                stream.read_exact(&mut idx_buf)?;
+                stream.read_exact(&mut begin_buf)?;
+                stream.read_exact(&mut block_buf)?;
+
+                println!("Received piece data of length {}", block_buf.len());
+                let file_hash = get_sha1(block_buf.as_slice());
                 if hash == file_hash {
                     let mut file = File::create(output_fn)?;
-                    file.write_all(&piece_data)?;
+                    file.write_all(&block_buf)?;
                     println!("Downloaded piece {} to {}", piece_idx, output_fn);
                     println!("piece hash {}", hash);
                     println!("file hash: {}", file_hash);
