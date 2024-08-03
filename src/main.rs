@@ -351,7 +351,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 }
 
 fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
-    let interested_msg = [0, 0, 0, 1, 2]; // <len=0001><id=2>
+    let interested_msg = [0, 0, 0, 0, 2]; // <len=0001><id=2>
     stream.write_all(&interested_msg)?;
     Ok(())
 }
@@ -389,11 +389,11 @@ fn download_piece(
     loop {
         // Read the length prefix (4 bytes)
         stream.read_exact(&mut len_prefix)?;
-        let message_length = u32::from_be_bytes(len_prefix) as usize;
+        let payload_len = u32::from_be_bytes(len_prefix) as usize;
 
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
-        println!("msgid:{}, length:{}", msg_id[0], message_length);
+        println!("msgid:{}, length:{}", msg_id[0], payload_len);
 
         match msg_id[0] {
             0 => {
@@ -413,14 +413,14 @@ fn download_piece(
             }
             5 => {
                 // Bitfield message
-                let mut bitfield = vec![0u8; message_length];
+                let mut bitfield = vec![0u8; payload_len];
                 stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
             }
             7 => {
                 // Piece message
-                let mut piece_data = vec![0u8; message_length];
+                let mut piece_data = vec![0u8; payload_len];
                 stream.read_exact(&mut piece_data)?;
                 println!("Received piece data of length {}", piece_data.len());
                 let mut file = File::create(output_fn)?;
@@ -432,7 +432,7 @@ fn download_piece(
             }
             _ => {
                 // Ignore other messages for now
-                let mut payload = vec![0u8; message_length];
+                let mut payload = vec![0u8; payload_len];
                 stream.read_exact(&mut payload)?;
             }
         }
@@ -504,8 +504,12 @@ fn main() {
                     continue;
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
-                let _res = download_piece(&mut stream, &meta_info, output_fn, idx);
-                println!("Piece {:?} downloaded to {}.", idx, output_fn);
+                let res = download_piece(&mut stream, &meta_info, output_fn, idx);
+                if res.is_ok() {
+                    println!("Piece {:?} downloaded to {}.", idx, output_fn);
+                } else {
+                    eprint!("Failed, {}", res.err().unwrap());
+                }
             }
         }
         _ => {
