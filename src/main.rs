@@ -348,7 +348,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 }
 
 fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
-    let interested_msg = [0, 0, 0, 0, 2]; // <len=0001><id=2>
+    let interested_msg = [0, 0, 0, 1, 2]; // <len=0001><id=2>
     stream.write_all(&interested_msg)?;
     Ok(())
 }
