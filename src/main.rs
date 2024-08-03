@@ -1,3 +1,4 @@
+use anyhow::Error;
 use core::str;
 use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
@@ -350,34 +351,38 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
 }
 
 const CHUNK_SIZE: usize = 1 << 14;
-fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str) -> Option<()> {
+fn download_piece(
+    mut stream: &TcpStream,
+    hashes: &Vec<String>,
+    output_fn: &str,
+) -> Result<(), Error> {
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
 
     // recv bitfield
     let mut len_prefix: [u8; 4] = [0; 4];
     let mut msg_id: [u8; 1] = [0; 1];
-    stream.read_exact(&mut len_prefix).expect("Read len failed");
-    stream.read_exact(&mut msg_id).expect("msg_id failed");
+    stream.read_exact(&mut len_prefix)?;
+    stream.read_exact(&mut msg_id)?;
 
     let mut message_length = u32::from_be_bytes(len_prefix) as usize;
     println!("bitfield len: {}, id: {}", message_length, msg_id[0]);
 
     // Read the bitfield payload - 1 means have piece
     let mut bitfield = Vec::with_capacity(message_length);
-    stream.read_exact(&mut bitfield).expect("read bitfield");
+    stream.read_exact(&mut bitfield)?;
     println!("bitfield payload: {:?}", bitfield);
 
     // resp len=0, id=interested
     len_prefix = [0u8, 0u8, 0u8, 0u8];
     msg_id[0] = 2;
-    stream.write_all(&len_prefix).expect("resp len failed");
-    stream.write_all(&msg_id).expect("interested failed");
-    stream.write_all(&[0]).expect("interested failed");
+    stream.write_all(&len_prefix)?;
+    stream.write_all(&msg_id)?;
+    stream.write_all(&[0])?;
     println!("send interested");
 
     // rcv unchoke
-    stream.read_exact(&mut len_prefix).expect("len failed");
-    stream.read_exact(&mut msg_id).expect("id failed");
+    stream.read_exact(&mut len_prefix)?;
+    stream.read_exact(&mut msg_id)?;
     message_length = u32::from_be_bytes(len_prefix) as usize;
     println!("unchoke len: {}, id: {}", message_length, msg_id[0]);
 
@@ -423,7 +428,7 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str)
             .unwrap();
         file.write_all(block.as_slice()).unwrap();
     });
-    Some(())
+    Ok(())
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -483,9 +488,8 @@ fn main() {
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 println!("Handshake Peer ID: {}", peer_id);
 
-                if let _ = download_piece(&stream, &meta_info.piece_hashes, output_fn) {
-                    println!("Piece {} downloaded to {}", idx, output_fn);
-                }
+                let a = download_piece(&stream, &meta_info.piece_hashes, output_fn);
+                println!("{:?}", a);
             }
         }
         _ => {
