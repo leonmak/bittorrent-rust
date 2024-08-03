@@ -45,10 +45,12 @@ fn decode_bencoded_value(
         }
         Some(i) if *i == b'i' => {
             let end_index: usize = encoded_value.iter().position(|&x| x == b'e').unwrap();
-            let num_str = str::from_utf8(&encoded_value[1..end_index]);
-            let number = u64::from_str_radix(num_str.unwrap(), 10).unwrap();
+            let is_neg = encoded_value[1] == b'-';
+            let start_index = if is_neg { 2 } else { 1 };
+            let num_str = str::from_utf8(&encoded_value[start_index..end_index]);
+            let number = i64::from_str_radix(num_str.unwrap(), 10).unwrap();
             // println!("int {}", number);
-            return (json!(number), end_index + 1);
+            return (json!(if is_neg { -1 } else { 1 } * number), end_index + 1);
         }
         Some(c) if *c == b'l' => {
             let mut list = Vec::new();
@@ -389,7 +391,6 @@ fn download_piece(
     let mut msg_id = [0u8; 1];
 
     let mut piece_buf = vec![0u8; piece_size as usize];
-    let mut pieces_rcv = 0;
     let mut num_chunks: u64 = 0;
 
     loop {
@@ -451,8 +452,8 @@ fn download_piece(
                 let _chunk_idx = u32::from_be_bytes(idx_buf) as usize;
                 let offset_idx = u32::from_be_bytes(begin_buf) as usize;
                 println!(
-                    "chunk#{} , offset {}, chunk_len {}",
-                    pieces_rcv, offset_idx, chunk_len
+                    "chunk left {} , offset {}, chunk_len {}",
+                    num_chunks, offset_idx, chunk_len
                 );
                 stream.read_exact(&mut chunk_buf)?;
                 for (i, b) in chunk_buf.iter().enumerate() {
