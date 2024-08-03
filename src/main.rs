@@ -471,6 +471,7 @@ fn download_piece(
                 // Ignore other messages for now
                 let mut payload = vec![0u8; payload_len];
                 stream.read_exact(&mut payload)?;
+                eprint!("Failed to read msg")
             }
         }
     }
