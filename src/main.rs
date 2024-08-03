@@ -323,7 +323,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
     // send a message with TCP
     let peer_id = "00112233445566778899"; // My Peer ID (20 bytes)
 
-    let mut handshake_msg = Vec::new();
+    let mut handshake_msg: Vec<u8> = Vec::new();
     handshake_msg.push(19); // Length of the protocol string (1 byte)
     handshake_msg.extend_from_slice(b"BitTorrent protocol"); // Protocol string (19 bytes)
     handshake_msg.extend_from_slice(&[0u8; 8]); // Reserved bytes (8 bytes)
@@ -337,7 +337,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Err
 
     // Read the response from the peer
     let mut response = [0u8; 68];
-    stream.set_read_timeout(Some(Duration::from_secs(6)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.read_exact(&mut response)?;
 
     let mut cursor = Cursor::new(response);
