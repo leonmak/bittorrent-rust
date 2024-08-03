@@ -355,29 +355,29 @@ fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
 
 fn send_request_message(
     stream: &mut TcpStream,
-    piece_index: usize,
-    block_offset: usize,
-    block_length: usize,
+    piece_index: u32,
+    block_offset: u32,
+    block_length: u32,
 ) -> std::io::Result<()> {
     let mut request_msg = Vec::with_capacity(17);
     request_msg.extend_from_slice(&(13u32).to_be_bytes()); // <len=0013>
     request_msg.push(6); // <id=6>
-    request_msg.extend_from_slice(&(piece_index as u32).to_be_bytes()); // <index>
-    request_msg.extend_from_slice(&(block_offset as u32).to_be_bytes()); // <begin>
-    request_msg.extend_from_slice(&(block_length as u32).to_be_bytes()); // <length>
+    request_msg.extend_from_slice(&(piece_index).to_be_bytes()); // <index>
+    request_msg.extend_from_slice(&(block_offset).to_be_bytes()); // <begin>
+    request_msg.extend_from_slice(&(block_length).to_be_bytes()); // <length>
     stream.write_all(&request_msg)?;
     Ok(())
 }
 
-const CHUNK_SIZE: usize = 1 << 14;
 fn download_piece(
     mut stream: &mut TcpStream,
     meta_info: &MetaInfo,
     output_fn: &str,
-    piece_idx: usize,
-) -> Result<(), Error> {
-    let hash = meta_info.piece_hashes[piece_idx].as_str();
-    let file_len = u64::from_str_radix(meta_info.length.as_str(), 10)?;
+    piece_idx: u32,
+) -> Result<(), std::io::Error> {
+    let hash = meta_info.piece_hashes[piece_idx as usize].as_str();
+    let piece_len = u32::from_str_radix(meta_info.piece_len.as_str(), 10).unwrap();
+    let file_len = u32::from_str_radix(meta_info.length.as_str(), 10).unwrap();
 
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
     let mut len_prefix = [0u8; 4];
@@ -401,11 +401,12 @@ fn download_piece(
             1 => {
                 // Unchoke message
                 println!("Peer unchoked us, sending request");
-                let offset = piece_idx * CHUNK_SIZE;
-                let block_length = if piece_idx == (meta_info.piece_hashes.len() - 1) {
-                    (file_len % CHUNK_SIZE as u64) as usize
+                let offset = piece_idx * piece_len;
+                let last = (meta_info.piece_hashes.len() - 1) as u32;
+                let block_length: u32 = if piece_idx == last {
+                    file_len % piece_len
                 } else {
-                    CHUNK_SIZE
+                    piece_len
                 };
                 send_request_message(&mut stream, piece_idx, offset, block_length)?;
             }
@@ -421,12 +422,20 @@ fn download_piece(
                 let mut piece_data = vec![0u8; payload_len - 9];
                 stream.read_exact(&mut piece_data)?;
                 println!("Received piece data of length {}", piece_data.len());
-                let mut file = File::create(output_fn)?;
-                file.write_all(&piece_data)?;
-                println!("Downloaded piece {} to {}", piece_idx, output_fn);
-                println!("piece hash {}", hash);
-                println!("file hash: {}", get_sha1(piece_data.as_slice()));
-                return Ok(());
+                let file_hash = get_sha1(piece_data.as_slice());
+                if hash == file_hash {
+                    let mut file = File::create(output_fn)?;
+                    file.write_all(&piece_data)?;
+                    println!("Downloaded piece {} to {}", piece_idx, output_fn);
+                    println!("piece hash {}", hash);
+                    println!("file hash: {}", file_hash);
+                    return Ok(());
+                } else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "File path cannot be empty",
+                    ));
+                }
             }
             _ => {
                 // Ignore other messages for now
@@ -485,7 +494,7 @@ fn main() {
             // -o /tmp/test-piece-0 sample.torrent 0
             let output_fn = &args[3];
             let filename = &args[4];
-            let idx = usize::from_str_radix(&args[5], 10).unwrap();
+            let idx = u32::from_str_radix(&args[5], 10).unwrap();
             let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
