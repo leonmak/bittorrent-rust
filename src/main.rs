@@ -355,9 +355,9 @@ fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
 
 fn send_request_message(
     stream: &mut TcpStream,
-    piece_index: u64,
+    piece_index: usize,
     block_offset: u64,
-    block_length: usize,
+    block_length: u64,
 ) -> std::io::Result<()> {
     let mut request_msg = Vec::with_capacity(17);
     request_msg.extend_from_slice(&(13u32).to_be_bytes()); // <len=0013>
@@ -369,16 +369,21 @@ fn send_request_message(
     println!("Sent request");
     Ok(())
 }
-
+const CHUNK_SIZE: u64 = 16834;
 fn download_piece(
     mut stream: &mut TcpStream,
     meta_info: &MetaInfo,
     output_fn: &str,
-    piece_idx: u64,
+    piece_idx: usize,
 ) -> Result<(), std::io::Error> {
     let hash = meta_info.piece_hashes[piece_idx as usize].as_str();
-    let piece_len = u64::from_str_radix(meta_info.piece_len.as_str(), 10).unwrap();
     let file_len = u64::from_str_radix(meta_info.length.as_str(), 10).unwrap();
+    let num_pieces = meta_info.piece_hashes.len();
+    let is_last_piece = piece_idx == num_pieces - 1;
+    let mut piece_size = u64::from_str_radix(meta_info.piece_len.as_str(), 10).unwrap();
+    if is_last_piece {
+        piece_size = file_len % piece_size;
+    }
 
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
     let mut len_prefix = [0u8; 4];
@@ -403,15 +408,18 @@ fn download_piece(
             1 => {
                 // Unchoke message
                 println!("Peer unchoked us, sending request");
-                let offset = piece_idx * piece_len;
-                let last = (meta_info.piece_hashes.len() - 1) as u64;
-                let block_length = if piece_idx == last {
-                    (file_len % piece_len) as usize
-                } else {
-                    piece_len as usize
-                };
-                println!("Requesting offset {} of length {}", offset, block_length);
-                send_request_message(&mut stream, piece_idx, offset, block_length)?;
+                // 1 piece contains many chunks/blocks, send a request per block
+                let mut num_chunks = piece_size / (CHUNK_SIZE as u64);
+                let rem_size = piece_size % CHUNK_SIZE;
+                if rem_size > 0 {
+                    num_chunks += 1;
+                }
+                for chunk_idx in 0..num_chunks {
+                    let piece_begin = CHUNK_SIZE * (chunk_idx as u64);
+                    let last_chunk = chunk_idx == num_chunks - 1;
+                    let chunk_len = if last_chunk { rem_size } else { CHUNK_SIZE };
+                    send_request_message(&mut stream, piece_idx, piece_begin, chunk_len)?;
+                }
             }
             5 => {
                 // Bitfield message
@@ -421,7 +429,7 @@ fn download_piece(
                 send_interested_message(&mut stream)?;
             }
             7 => {
-                // Piece message
+                // Piece message block together
                 let mut idx_buf = [0u8; 4];
                 let mut begin_buf = [0u8; 4];
                 let mut block_buf = vec![0u8; payload_len - 9];
@@ -508,7 +516,7 @@ fn main() {
             // -o /tmp/test-piece-0 sample.torrent 0
             let output_fn = &args[3];
             let filename = &args[4];
-            let idx = u64::from_str_radix(&args[5], 10).unwrap();
+            let idx = usize::from_str_radix(&args[5], 10).unwrap();
             let meta_info: MetaInfo = read_torrent_info(filename).unwrap();
             let peer_info = read_peer_url(&meta_info).unwrap();
             println!("{:?}", meta_info);
