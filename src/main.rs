@@ -350,7 +350,7 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
 }
 
 const CHUNK_SIZE: usize = 1 << 14;
-fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str) {
+fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str) -> Option<()> {
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
 
     // recv bitfield
@@ -422,7 +422,8 @@ fn download_piece(mut stream: &TcpStream, hashes: &Vec<String>, output_fn: &str)
             .open(output_fn)
             .unwrap();
         file.write_all(block.as_slice()).unwrap();
-    })
+    });
+    Some(())
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -481,8 +482,10 @@ fn main() {
                 let stream = TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 println!("Handshake Peer ID: {}", peer_id);
-                download_piece(&stream, &meta_info.piece_hashes, output_fn);
-                println!("Piece {} downloaded to {}", idx, output_fn);
+
+                if let _ = download_piece(&stream, &meta_info.piece_hashes, output_fn) {
+                    println!("Piece {} downloaded to {}", idx, output_fn);
+                }
             }
         }
         _ => {
