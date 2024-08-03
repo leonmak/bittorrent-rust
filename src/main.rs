@@ -418,7 +418,7 @@ fn download_piece(
                 }
                 for chunk_idx in 0..num_chunks {
                     let piece_begin = CHUNK_SIZE * (chunk_idx as u64);
-                    let last_chunk = chunk_idx == num_chunks - 1;
+                    let last_chunk = chunk_idx == num_chunks - 1 && rem_size > 0;
                     let chunk_len = if last_chunk { rem_size } else { CHUNK_SIZE };
                     let res = send_request_message(&mut stream, piece_idx, piece_begin, chunk_len);
                     if res.is_ok() {
