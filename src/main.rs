@@ -464,11 +464,6 @@ fn download_piece(
                     println!("piece hash {}", expect_hash);
                     println!("file hash: {}", dl_piece_hash);
                     return Ok(());
-                } else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "File path cannot be empty",
-                    ));
                 }
             }
             _ => {
