@@ -375,10 +375,13 @@ fn send_request_message(
 const CHUNK_SIZE: usize = 1 << 14;
 fn download_piece(
     mut stream: &mut TcpStream,
-    piece_hash: &str,
+    meta_info: &MetaInfo,
     output_fn: &str,
     piece_idx: usize,
 ) -> Result<(), Error> {
+    let hash = meta_info.piece_hashes[piece_idx].as_str();
+    let file_len = u64::from_str_radix(meta_info.length.as_str(), 10)?;
+
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
     let mut len_prefix = [0u8; 4];
     let mut msg_id = [0u8; 1];
@@ -400,7 +403,13 @@ fn download_piece(
             1 => {
                 // Unchoke message
                 println!("Peer unchoked us, sending request");
-                send_request_message(&mut stream, piece_idx, piece_idx * CHUNK_SIZE, CHUNK_SIZE)?;
+                let offset = piece_idx * CHUNK_SIZE;
+                let block_length = if piece_idx == (meta_info.piece_hashes.len() - 1) {
+                    (file_len % CHUNK_SIZE as u64) as usize
+                } else {
+                    CHUNK_SIZE
+                };
+                send_request_message(&mut stream, piece_idx, offset, block_length)?;
             }
             5 => {
                 // Bitfield message
@@ -417,7 +426,7 @@ fn download_piece(
                 let mut file = File::create(output_fn)?;
                 file.write_all(&piece_data)?;
                 println!("Downloaded piece {} to {}", piece_idx, output_fn);
-                println!("piece hash {}", piece_hash);
+                println!("piece hash {}", meta_info.piece_hashes[piece_idx]);
                 println!("file hash: {}", get_sha1(piece_data.as_slice()));
                 return Ok(());
             }
@@ -428,8 +437,6 @@ fn download_piece(
             }
         }
     }
-    // send 6:request to each downloader
-    Ok(())
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -498,8 +505,7 @@ fn main() {
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
 
-                let hash = meta_info.piece_hashes[idx].as_str();
-                let a = download_piece(&mut stream, hash, output_fn, idx);
+                let a = download_piece(&mut stream, &meta_info, output_fn, idx);
                 println!("{:?}", a);
             }
         }
