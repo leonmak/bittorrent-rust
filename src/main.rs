@@ -413,7 +413,7 @@ fn download_piece(
             }
             5 => {
                 // Bitfield message
-                let mut bitfield = vec![0u8; message_length];
+                let mut bitfield = vec![0u8; message_length - 1];
                 stream.read_exact(&mut bitfield)?;
                 println!("Received bitfield: {:?}", bitfield);
                 send_interested_message(&mut stream)?;
@@ -504,7 +504,7 @@ fn main() {
                     continue;
                 }
                 println!("Handshake Peer ID: {}", peer_id.unwrap());
-                //let _res = download_piece(&mut stream, &meta_info, output_fn, idx);
+                let _res = download_piece(&mut stream, &meta_info, output_fn, idx);
                 println!("Piece {:?} downloaded to {}.", idx, output_fn);
             }
         }
