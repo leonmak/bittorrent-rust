@@ -4,12 +4,11 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use sha1::{Digest, Sha1};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::{env, fs, path::Path};
-use tokio::time::Timeout;
 
 #[allow(dead_code)]
 fn decode_bencoded_value(
@@ -417,6 +416,9 @@ fn download_piece(
                 println!("Received piece data of length {}", piece_data.len());
                 let mut file = File::create(output_fn)?;
                 file.write_all(&piece_data)?;
+                println!("Downloaded piece {} to {}", piece_idx, output_fn);
+                println!("piece hash {}", piece_hash);
+                println!("file hash: {}", get_sha1(piece_data.as_slice()));
                 return Ok(());
             }
             _ => {
