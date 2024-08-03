@@ -394,7 +394,6 @@ fn download_piece(
     loop {
         // Read the length prefix (4 bytes)
         stream.read_exact(&mut len_prefix)?;
-        println!("len b{:?}", len_prefix);
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
 
@@ -418,8 +417,8 @@ fn download_piece(
                 }
                 for chunk_idx in 0..num_chunks {
                     let piece_begin = CHUNK_SIZE * (chunk_idx as u64);
-                    let last_chunk = chunk_idx == num_chunks - 1 && rem_size > 0;
-                    let chunk_len = if last_chunk { rem_size } else { CHUNK_SIZE };
+                    let odd_chunk = chunk_idx == num_chunks - 1 && rem_size > 0;
+                    let chunk_len = if odd_chunk { rem_size } else { CHUNK_SIZE };
                     let res = send_request_message(&mut stream, piece_idx, piece_begin, chunk_len);
                     if res.is_ok() {
                         println!(
@@ -449,7 +448,10 @@ fn download_piece(
                 stream.read_exact(&mut begin_buf)?;
                 let chunk_idx = u32::from_be_bytes(idx_buf) as usize;
                 let offset_idx = u32::from_be_bytes(begin_buf) as usize;
-                println!("idx {} , offset {}", chunk_idx, offset_idx);
+                println!(
+                    "idx {} , offset {}, chunk_len {}",
+                    chunk_idx, offset_idx, chunk_len
+                );
                 stream.read_exact(&mut chunk_buf)?;
                 for (i, b) in chunk_buf.iter().enumerate() {
                     piece_buf[offset_idx + i] = *b;
