@@ -366,6 +366,7 @@ fn send_request_message(
     request_msg.extend_from_slice(&(block_offset as u32).to_be_bytes()); // <begin>
     request_msg.extend_from_slice(&(block_length as u32).to_be_bytes()); // <length>
     stream.write_all(&request_msg)?;
+    println!("Sent request");
     Ok(())
 }
 
@@ -519,7 +520,7 @@ fn main() {
                     continue;
                 }
                 let mut stream = stream_res.unwrap();
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(6)));
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 if peer_id.is_err() {
                     eprint!("Failed handshake, {}", peer_id.err().unwrap());
