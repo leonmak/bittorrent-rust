@@ -1,4 +1,3 @@
-mod utils;
 use core::str;
 use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
@@ -8,15 +7,14 @@ use std::fs::OpenOptions;
 use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::{env, fs, path::Path};
-use utils::utf8_len;
 
 #[allow(dead_code)]
 fn decode_bencoded_value(
     encoded_value: &[u8],
     helper: &mut HelperInfo,
 ) -> (serde_json::Value, usize) {
-    println!("[u8]:{:?}", encoded_value);
-    println!("enc: {:?}", String::from_utf8_lossy(encoded_value));
+    // println!("[u8]:{:?}", encoded_value);
+    // println!("enc: {:?}", String::from_utf8_lossy(encoded_value));
 
     match encoded_value.iter().next() {
         Some(str_len) if str_len.is_ascii_digit() => {
@@ -24,27 +22,17 @@ fn decode_bencoded_value(
             // value is string or byte array (peers/pieces)
             let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
             let num_str = str::from_utf8(&encoded_value[..colon_index]);
-            let mut num_chars = usize::from_str_radix(num_str.unwrap(), 10).unwrap();
+            let num_chars = usize::from_str_radix(num_str.unwrap(), 10).unwrap();
             let start_idx = colon_index + 1;
             // println!("{} || {:?}", num_chars, target_slice);
 
             // it will be invalid utf8 if it was a key 'pieces', return array in that case
             // you can use unsafe string, but it will not be checked and string will panic
             if helper.is_bytes_val {
-                let mut byte_count: usize = 0;
-                let mut i = start_idx;
-                while num_chars > 0 {
-                    num_chars -= 1;
-                    let byte = encoded_value[i];
-                    let len = utf8_len(byte) as usize;
-                    println!("num_chars:{}, char:{}", num_chars, len);
-                    byte_count += len;
-                    i += len;
-                }
-                let end_idx = start_idx + byte_count;
+                let end_idx = start_idx + num_chars;
                 helper.is_bytes_val = false;
-                let val = &encoded_value[start_idx..end_idx + 1];
-                (json!(val), i)
+                let val = &encoded_value[start_idx..end_idx];
+                (json!(val), end_idx)
             } else {
                 // strings are valid utf8-encoded byte slice
                 let end_idx = start_idx + num_chars;
@@ -57,7 +45,7 @@ fn decode_bencoded_value(
             let end_index: usize = encoded_value.iter().position(|&x| x == b'e').unwrap();
             let num_str = str::from_utf8(&encoded_value[1..end_index]);
             let number = u64::from_str_radix(num_str.unwrap(), 10).unwrap();
-            println!("int {}", number);
+            // println!("int {}", number);
             return (json!(number), end_index + 1);
         }
         Some(c) if *c == b'l' => {
@@ -169,7 +157,6 @@ fn read_torrent_info(filename: &str) -> Option<MetaInfo> {
             let (decoded_value, _len) =
                 decode_bencoded_value(encoded_value.as_slice(), &mut helper);
 
-            println!("{:?}", decoded_value);
             let url = decoded_value.get("announce")?.to_string();
             let info_dict = decoded_value.get("info")?.clone();
             let length = info_dict.get("length")?.to_string();
