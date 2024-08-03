@@ -390,6 +390,7 @@ fn download_piece(
 
         // Read the message ID (1 byte)
         stream.read_exact(&mut msg_id)?;
+        println!("msgid:{}, length:{}", msg_id[0], message_length);
 
         match msg_id[0] {
             0 => {
