@@ -362,6 +362,7 @@ fn send_request_message(
     block_offset: usize,
     block_length: usize,
 ) -> std::io::Result<()> {
+    println!("Sending req");
     let mut request_msg = Vec::with_capacity(17);
     request_msg.extend_from_slice(&(12u32).to_be_bytes()); // <len=0013>
     request_msg.push(6); // <id=6>
