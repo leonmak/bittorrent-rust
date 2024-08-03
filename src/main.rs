@@ -484,8 +484,11 @@ fn main() {
             let peer_ips = fmt_ip_str(&peer_info.peers);
             for peer_ipaddr in peer_ips {
                 println!("Connecting to: {:?}", peer_ipaddr);
-                let mut stream =
-                    TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
+                let stream_res = TcpStream::connect(peer_ipaddr);
+                if stream_res.is_err() {
+                    continue;
+                }
+                let mut stream = stream_res.unwrap();
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
                 if peer_id.is_err() {
                     continue;
