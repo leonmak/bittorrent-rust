@@ -376,7 +376,7 @@ fn download_piece(
     output_fn: &str,
     piece_idx: usize,
 ) -> Result<(), std::io::Error> {
-    let hash = meta_info.piece_hashes[piece_idx as usize].as_str();
+    let expect_hash = meta_info.piece_hashes[piece_idx as usize].as_str();
     let file_len = u64::from_str_radix(meta_info.length.as_str(), 10).unwrap();
     let num_pieces = meta_info.piece_hashes.len();
     let is_last_piece = piece_idx == num_pieces - 1;
@@ -388,6 +388,9 @@ fn download_piece(
     // message = length prefix (4 bytes), message id (1 byte), payload (variable size)
     let mut len_prefix = [0u8; 4];
     let mut msg_id = [0u8; 1];
+
+    let mut piece_buf = vec![0u8; piece_size as usize];
+    let mut pieces_rcv = 0;
 
     loop {
         // Read the length prefix (4 bytes)
@@ -432,25 +435,27 @@ fn download_piece(
                 // Piece message block together
                 let mut idx_buf = [0u8; 4];
                 let mut begin_buf = [0u8; 4];
-                let mut block_buf = vec![0u8; payload_len - 9];
+                let chunk_len = payload_len - 9;
+                let mut chunk_buf = vec![0u8; chunk_len];
 
                 stream.read_exact(&mut idx_buf)?;
                 stream.read_exact(&mut begin_buf)?;
-                println!(
-                    "idx {} , offset {}",
-                    u32::from_be_bytes(idx_buf),
-                    u32::from_be_bytes(begin_buf)
-                );
-                stream.read_exact(&mut block_buf)?;
-
-                println!("Received piece data of length {}", block_buf.len());
-                let file_hash = get_sha1(block_buf.as_slice());
-                if hash == file_hash {
+                let chunk_idx = u32::from_be_bytes(idx_buf) as usize;
+                let offset_idx = u32::from_be_bytes(begin_buf) as usize;
+                println!("idx {} , offset {}", chunk_idx, offset_idx);
+                stream.read_exact(&mut chunk_buf)?;
+                for (i, b) in chunk_buf.iter().enumerate() {
+                    piece_buf[offset_idx + i] = *b;
+                }
+                pieces_rcv += 1;
+                println!("Received piece data of length {}", chunk_buf.len());
+                if pieces_rcv == num_pieces {
+                    let dl_piece_hash = get_sha1(&piece_buf);
                     let mut file = File::create(output_fn)?;
-                    file.write_all(&block_buf)?;
+                    file.write_all(&chunk_buf)?;
                     println!("Downloaded piece {} to {}", piece_idx, output_fn);
-                    println!("piece hash {}", hash);
-                    println!("file hash: {}", file_hash);
+                    println!("piece hash {}", expect_hash);
+                    println!("file hash: {}", dl_piece_hash);
                     return Ok(());
                 } else {
                     return Err(std::io::Error::new(
