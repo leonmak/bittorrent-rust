@@ -390,6 +390,7 @@ fn download_piece(
 
     let mut piece_buf = vec![0u8; piece_size as usize];
     let mut pieces_rcv = 0;
+    let mut num_chunks: u64 = 0;
 
     loop {
         // Read the length prefix (4 bytes)
@@ -410,7 +411,7 @@ fn download_piece(
                 // Unchoke message
                 println!("Peer unchoked us, sending request");
                 // 1 piece contains many chunks/blocks, send a request per block
-                let mut num_chunks = piece_size / (CHUNK_SIZE as u64);
+                num_chunks = piece_size / (CHUNK_SIZE as u64);
                 let rem_size = piece_size % CHUNK_SIZE;
                 if rem_size > 0 {
                     num_chunks += 1;
@@ -443,7 +444,7 @@ fn download_piece(
                 let mut begin_buf = [0u8; 4];
                 let chunk_len = payload_len - 9;
                 let mut chunk_buf = vec![0u8; chunk_len];
-                pieces_rcv += 1;
+                num_chunks -= 1;
 
                 stream.read_exact(&mut idx_buf)?;
                 stream.read_exact(&mut begin_buf)?;
@@ -458,7 +459,7 @@ fn download_piece(
                     piece_buf[offset_idx + i] = *b;
                 }
                 println!("Received piece data of length {}", chunk_buf.len());
-                if pieces_rcv == num_pieces {
+                if num_chunks == 0 {
                     let dl_piece_hash = get_sha1(&piece_buf);
                     let mut file = File::create(output_fn)?;
                     file.write_all(&piece_buf)?;
