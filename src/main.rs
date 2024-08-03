@@ -318,7 +318,7 @@ fn read_handshake_message<R: std::io::Read>(reader: &mut R) -> std::io::Result<H
     Ok(handshake)
 }
 
-fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
+fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> Result<String, Error> {
     // send a message with TCP
     let peer_id = "00112233445566778899"; // My Peer ID (20 bytes)
 
@@ -344,10 +344,10 @@ fn send_handshake(mut stream: &TcpStream, info_hash: &str) -> String {
     let handshake = read_handshake_message(&mut cursor).expect("Failed to read handshake message");
     // print each byte as its hex char
     println!("{:?}", handshake);
-    format!(
+    Ok(format!(
         "{}",
         handshake.peer_id.map(|f| format!("{:02x}", f)).join("")
-    )
+    ))
 }
 
 fn send_interested_message(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -458,8 +458,10 @@ fn main() {
             let meta_info = read_torrent_info(filename).unwrap();
             let ip_port = &args[3];
             let stream = TcpStream::connect(ip_port).expect("Failed to connect to peer");
-            let peer_id = send_handshake(&stream, &meta_info.info_hash);
-            println!("Peer ID: {}", peer_id);
+            match send_handshake(&stream, &meta_info.info_hash) {
+                Ok(peer_id) => println!("Peer ID: {}", peer_id),
+                Err(e) => println!("Error: {}", e),
+            }
         }
         "download_piece" => {
             // -o /tmp/test-piece-0 sample.torrent 0
@@ -475,7 +477,10 @@ fn main() {
                 let mut stream =
                     TcpStream::connect(peer_ipaddr).expect("Failed to connect to peer");
                 let peer_id = send_handshake(&stream, &meta_info.info_hash);
-                println!("Handshake Peer ID: {}", peer_id);
+                if peer_id.is_err() {
+                    continue;
+                }
+                println!("Handshake Peer ID: {}", peer_id.unwrap());
 
                 let hash = meta_info.piece_hashes[idx].as_str();
                 let a = download_piece(&mut stream, hash, output_fn, idx);
