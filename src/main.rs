@@ -408,6 +408,7 @@ fn download_piece(
                 } else {
                     piece_len as usize
                 };
+                println!("Requesting block {} of length {}", offset, block_length);
                 send_request_message(&mut stream, piece_idx, offset, block_length)?;
             }
             5 => {
