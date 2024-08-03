@@ -363,7 +363,7 @@ fn send_request_message(
     block_length: usize,
 ) -> std::io::Result<()> {
     let mut request_msg = Vec::with_capacity(17);
-    request_msg.extend_from_slice(&(13u32).to_be_bytes()); // <len=0013>
+    request_msg.extend_from_slice(&(12u32).to_be_bytes()); // <len=0013>
     request_msg.push(6); // <id=6>
     request_msg.extend_from_slice(&(piece_index as u32).to_be_bytes()); // <index>
     request_msg.extend_from_slice(&(block_offset as u32).to_be_bytes()); // <begin>
@@ -398,7 +398,7 @@ fn download_piece(
             }
             1 => {
                 // Unchoke message
-                println!("Peer unchoked us");
+                println!("Peer unchoked us, sending request");
                 send_request_message(&mut stream, piece_idx, piece_idx * CHUNK_SIZE, CHUNK_SIZE)?;
             }
             5 => {
