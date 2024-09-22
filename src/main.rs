@@ -11,7 +11,8 @@ use std::io::{Cursor, Write as _};
 use std::net::TcpStream;
 use std::time::Duration;
 use std::{env, fs, path::Path};
-use structs::{read_handshake_message, HelperInfo, MetaInfo, PeerInfo};
+use structs::{parse_magnet_uri, read_handshake_message, HelperInfo, MetaInfo, PeerInfo};
+use urlencoding::decode;
 use utils::decode_bencoded_value;
 
 // https://www.bittorrent.org/beps/bep_0003.html
@@ -426,6 +427,17 @@ fn main() {
             let mut file = File::create(output_fn).unwrap();
             file.write_all(&file_buf.as_slice()).unwrap();
             println!("Downloaded file {}", output_fn);
+        }
+        "magnet_parse" => {
+            let magnet_uri = &args[2];
+            let magnet_params = parse_magnet_uri(magnet_uri);
+            // Tracker URL: http://bittorrent-test-tracker.codecrafters.io/announce
+            // Info Hash: d69f91e6b2ae4c542468d1073a71d4ea13879a7f
+            println!(
+                "Tracker URL: {}",
+                decode(magnet_params.tracking_url.as_str()).expect("UTF-8")
+            );
+            println!("Info Hash: {}", magnet_params.info_hash);
         }
         _ => {
             println!("unknown command: {}", args[1])

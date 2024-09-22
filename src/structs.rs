@@ -69,3 +69,47 @@ pub fn read_handshake_message<R: std::io::Read>(
 
     Ok(handshake)
 }
+
+// xt: urn:btih: followed by the 40-char hex-encoded info hash (example: urn:btih:d69f91e6b2ae4c542468d1073a71d4ea13879a7f)
+// dn: The name of the file to be downloaded (example: sample.torrent)
+// tr: The tracker URL (example: http://bittorrent-test-tracker.codecrafters.io/announce)
+pub struct MagnetLinkParams {
+    pub exact_topic: String,
+    pub info_hash: String,
+    pub download_name: String,
+    pub tracking_url: String,
+}
+
+// magnet:?xt=urn:btih:d69f91e6b2ae4c542468d1073a71d4ea13879a7f&dn=sample.torrent&tr=http%3A%2F%2Fbittorrent-test-tracker.codecrafters.io%2Fannounce
+pub fn parse_magnet_uri(uri: &String) -> MagnetLinkParams {
+    let mut xt = String::new();
+    let mut xt_info = String::new();
+    let mut dn = String::new();
+    let mut tr = String::new();
+
+    let parts: Vec<&str> = uri.split('?').collect();
+    if parts.len() > 1 {
+        let queries: Vec<&str> = parts[1].split('&').collect();
+        for query in queries {
+            let kv: Vec<&str> = query.split('=').collect();
+            if kv.len() == 2 {
+                match kv[0] {
+                    "xt" => {
+                        xt = kv[1].to_string();
+                        xt_info = kv[1].split("urn:btih:").collect::<Vec<&str>>()[1].to_string();
+                    }
+                    "dn" => dn = kv[1].to_string(),
+                    "tr" => tr = kv[1].to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    MagnetLinkParams {
+        exact_topic: xt,
+        info_hash: xt_info,
+        download_name: dn,
+        tracking_url: tr,
+    }
+}
